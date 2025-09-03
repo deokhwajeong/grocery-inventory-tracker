@@ -51,3 +51,75 @@ The project is also a great opportunity to apply what I learned in CS50: working
 ---
 
 ## Project Structure
+
+project/  
+├── app.py # Main Flask application  
+├── groceries.db # SQLite database  
+├── templates/ # HTML templates  
+│   ├── layout.html # Base layout  
+│   ├── index.html # Inventory dashboard  
+│   └── add.html # Form for adding groceries  
+├── static/ # CSS/JS files  
+│   └── styles.css  
+├── README.md # Project documentation  
+
+---
+
+## Setup & Installation
+1. Clone the repository:
+   git clone https://github.com/deokhwajeong/grocery-inventory-tracker.git  
+   cd grocery-inventory-tracker  
+
+2. Install dependencies:
+   pip install -r requirements.txt  
+
+3. Initialize the database:
+   sqlite3 groceries.db < schema.sql  
+
+4. Run the Flask app:
+   flask run  
+
+5. Open in your browser at:  
+   http://127.0.0.1:5000  
+
+---
+
+## Files
+- **app.py** – Contains all Flask routes (/, /add, etc.), handles database operations.  
+- **groceries.db** – SQLite database file that persists grocery data.  
+- **templates/index.html** – Displays the current grocery inventory in a table.  
+- **templates/add.html** – Simple form for adding grocery items.  
+- **templates/layout.html** – Base template for consistent styling.  
+- **static/styles.css** – Custom CSS for table styling and layout.  
+- **README.md** – Documentation of the project.  
+
+---
+
+## Design Decisions
+- I chose Flask over Django to keep the project lightweight and easy to set up for local use.  
+- SQLite was chosen instead of MySQL/Postgres because it requires no external server and fits the small scale of this app.  
+- The manual entry version was prioritized for submission to guarantee functionality within the project deadline.  
+- OCR integration was considered, but postponed to avoid scope creep. Instead, I documented it as a future enhancement.  
+
+---
+
+## Challenges
+- Parsing OCR results can be messy, since receipts vary by store format.  
+- Designing the database schema was straightforward, but I had to think about scalability (e.g., what if we also want to track expiration dates or categories in the future?).  
+- Balancing between “just enough for CS50 Final Project” vs. “something actually useful at home” was an interesting tension.  
+
+---
+
+## Future Work
+- **OCR integration:** Automate data entry by scanning receipts.  
+- **Expiration tracking:** Automatically calculate expiry dates and highlight soon-to-expire items.  
+- **Notifications:** Email or push alerts when items are running low or near expiry.  
+- **User accounts:** Multi-user support so each family member can log in.  
+
+---
+
+## Acknowledgements
+- Inspired by daily life in my kitchen 😊  
+- Built as part of **CS50x 2025 Final Project**.  
+- Thanks to CS50 staff and community for resources and support.  
+- Some coding assistance provided with the help of AI tools (ChatGPT), cited here as per course guidelines.  
