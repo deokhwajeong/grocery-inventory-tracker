@@ -1,5 +1,5 @@
 # Grocery Inventory Tracker
-#### Video Demo: <URL HERE>
+#### Video Demo: <URL https://www.youtube.com/watch?v=gzT7N7sNEq4>
 #### Description:
 Grocery Inventory Tracker is a simple web application built with Flask and SQLite that helps you keep track of the items in your fridge.  
 With this app, you can easily record groceries (name, quantity, and purchase date) and view your fridge inventory in a clean dashboard.  
