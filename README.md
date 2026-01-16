@@ -1,55 +1,55 @@
 # Grocery Inventory Tracker
-#### Video Demo: <URL https://www.youtube.com/watch?v=gzT7N7sNEq4>
-#### Description:
+
 Grocery Inventory Tracker is a sophisticated web application built with Flask and SQLite designed to revolutionize how you manage your fridge inventory. This application combines modern OCR technology, smart categorization, and an elegant monotone UI to help reduce food waste and keep your groceries organized.
 
 Born from the frustration of discovering expired items and duplicate purchases, this project evolved from a simple inventory tracker into a comprehensive grocery management system with advanced features like expiry tracking, smart filtering, and mobile-first OCR scanning.
 
 ---
 
-## ✨ Features
+## Features
 
 ### Core Functionality
-- **📝 Full CRUD Operations**: Add, view, edit, and delete grocery items with comprehensive details
-- **📊 Smart Dashboard**: Real-time statistics showing total items, expiring items, and category distribution
-- **🔍 Advanced Search & Filter**: Search by name, filter by category, and sort by multiple criteria
-- **📱 Responsive Design**: Beautiful monotone UI that works seamlessly on desktop and mobile
+- Full CRUD Operations: Add, view, edit, and delete grocery items with comprehensive details
+- Smart Dashboard: Real-time statistics showing total items, expiring items, and category distribution
+- Advanced Search & Filter: Search by name, filter by category, and sort by multiple criteria
+- Responsive Design: Beautiful monotone UI that works seamlessly on desktop and mobile
 
 ### Expiry Management
-- **📅 Expiry Date Tracking**: Set and monitor expiration dates for all items
-- **⚠️ Smart Alerts**: Visual warnings for items expiring within 7 days
-- **🎨 Color-Coded Status**: Expired (dark border), expiring soon (warning), or fresh items
-- **📈 Expiry Statistics**: Dashboard widget showing count of soon-to-expire items
+- Expiry Date Tracking: Set and monitor expiration dates for all items
+- Smart Alerts: Visual warnings for items expiring within 7 days
+- Color-Coded Status: Expired (dark border), expiring soon (warning), or fresh items
+- Expiry Statistics: Dashboard widget showing count of soon-to-expire items
 
 ### OCR Technology
-- **📸 Receipt Scanning**: Upload photos or use your phone's camera to scan receipts
-- **🤖 AI-Powered Recognition**: Advanced OCR with multi-stage image preprocessing
-- **🌐 Multi-language Support**: English and Korean receipt recognition
-- **🎯 High Accuracy**: Confidence scoring for each extracted item (0-100%)
-- **🔄 Smart Normalization**: Automatic product name correction and standardization
-- **🔀 Duplicate Detection**: Intelligent merging of similar items
-- **🏷️ Auto-categorization**: AI-based category suggestion for each item
-- **📊 Quality Analysis**: Real-time feedback on OCR extraction quality
-- **✏️ Batch Editing**: Review and modify all scanned items before import
-- **✅ Selective Import**: Choose which scanned items to add to inventory
-- **📱 Mobile-First**: Native camera integration for iOS and Android
-- **⚡ Real-time Progress**: Visual feedback during OCR processing
+- Receipt Scanning: Upload photos or use your phone's camera to scan receipts
+- AI-Powered Recognition: Advanced OCR with multi-stage image preprocessing
+- Multi-language Support: English and Korean receipt recognition
+- High Accuracy: Confidence scoring for each extracted item (0-100%)
+- Smart Normalization: Automatic product name correction and standardization
+- Duplicate Detection: Intelligent merging of similar items
+- Auto-categorization: AI-based category suggestion for each item
+- Quality Analysis: Real-time feedback on OCR extraction quality
+- Batch Editing: Review and modify all scanned items before import
+- Selective Import: Choose which scanned items to add to inventory
+- Mobile-First: Native camera integration for iOS and Android
+- Real-time Progress: Visual feedback during OCR processing
 
 ### Organization
-- **🏷️ Category System**: 9 predefined categories (Dairy, Meat, Produce, Bakery, Frozen, Pantry, Beverages, Snacks, Other)
-- **📝 Notes Field**: Add custom notes or details for any item
-- **📊 Category Analytics**: View item distribution across categories
-- **🔖 Smart Badges**: Visual category indicators throughout the interface
+- Category System: 9 predefined categories (Dairy, Meat, Produce, Bakery, Frozen, Pantry, Beverages, Snacks, Other)
+- Notes Field: Add custom notes or details for any item
+- Category Analytics: View item distribution across categories
+- Smart Badges: Visual category indicators throughout the interface
 
 ### Design & UX
-- **🎨 Minimalist Monotone Design**: Sophisticated beige and gray color palette
-- **✍️ Premium Typography**: Playfair Display for headings, Inter for body text
-- **📐 Clean Layout**: Generous spacing, subtle shadows, and refined borders
-- **⚡ Smooth Interactions**: Subtle hover effects and transitions
-- **📱 Mobile Optimized**: Touch-friendly interface with camera integration
+- Minimalist Monotone Design: Sophisticated beige and gray color palette
+- Premium Typography: Playfair Display for headings, Inter for body text
+- Clean Layout: Generous spacing, subtle shadows, and refined borders
+- Smooth Interactions: Subtle hover effects and transitions
+- Mobile Optimized: Touch-friendly interface with camera integration
 
 ---
-## 📸 Screenshots & Demo
+
+## Screenshots & Demo
 
 ### Dashboard
 ![Dashboard Overview](docs/screenshots/dashboard.png)
@@ -70,7 +70,7 @@ Born from the frustration of discovering expired items and duplicate purchases, 
   <img src="docs/screenshots/mobile-results.png" width="30%" alt="Results" />
 </p>
 
-*Seamless mobile experience: Take photo → Preview → Review extracted items*
+*Seamless mobile experience: Take photo - Preview - Review extracted items*
 
 ### Item Management
 ![Add/Edit Items](docs/screenshots/add-edit.png)
@@ -84,16 +84,10 @@ Born from the frustration of discovering expired items and duplicate purchases, 
 ![Category Distribution](docs/screenshots/category-stats.png)
 *Dashboard statistics showing item distribution across 9 categories*
 
-> **Note**: To add your own screenshots:
-> 1. Create folder: `mkdir -p docs/screenshots`
-> 2. Take screenshots of the running app
-> 3. Save images with the names shown above
-> 4. Screenshots will automatically appear in README
-
 ---
 ## � Active Project
 
-**🚀 OCR Enhancement Project (2026 Q1)**
+**OCR Enhancement Project (2026 Q1)**
 
 We're actively improving OCR accuracy and mobile experience!
 
@@ -102,20 +96,20 @@ We're actively improving OCR accuracy and mobile experience!
 - **Current Phase**: Phase 2 - Accuracy Improvement
 - **Progress**: 20% complete
 
-📋 **Quick Links**:
+**Quick Links**:
 - [Project Board](https://github.com/deokhwajeong/grocery-inventory-tracker/projects) - Track progress
 - [Project Overview](.github/PROJECT_OCR_ENHANCEMENT.md) - Detailed plan & metrics
 - [Quick Start](.github/PROJECT_QUICKSTART.md) - Get started in 3 steps
 - [GitHub Projects Setup](.github/GITHUB_PROJECTS_SETUP.md) - Board configuration
 
-🎯 **Key Metrics**:
+**Key Metrics**:
 - OCR Accuracy: 70% → 85% (target)
 - Processing Time: 15s → 10s (target)
 - Mobile Compatibility: 60% → 95% (target)
 
 ---
 
-## �💡 Motivation
+## �Motivation
 The inspiration for this project came from my daily routine.  
 Like many families, I sometimes lose track of what's inside the fridge and end up buying duplicate items or letting food go to waste.  
 I wanted to build something small but useful that could help keep groceries organized.  
@@ -130,7 +124,7 @@ Instead of relying on expensive smart fridge technology, I created a free, light
 
 ---
 
-## 🚀 How It Works
+## How It Works
 1. **Manual Entry:**  
    Add items through an intuitive form with fields for name, quantity, purchase date, expiry date, category, and notes.
 
@@ -156,7 +150,7 @@ Instead of relying on expensive smart fridge technology, I created a free, light
 
 ---
 
-## 🛠️ Technologies
+## Technologies
 
 ### Backend
 - **Python (Flask):** Lightweight web framework for routing and logic
@@ -184,7 +178,7 @@ Instead of relying on expensive smart fridge technology, I created a free, light
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 grocery-inventory-tracker/  
@@ -212,7 +206,7 @@ grocery-inventory-tracker/
 
 ---
 
-## 💻 Setup & Installation
+## Setup & Installation
 
 ### Prerequisites
 - Python 3.8+
@@ -286,7 +280,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ---
 
-## 📱 Usage Guide
+## Usage Guide
 
 ### Adding Items Manually
 1. Click "Add New Item" button
@@ -315,7 +309,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ---
 
-## 🎨 Design Philosophy
+## Design Philosophy
 
 The application follows a **minimalist monotone design** philosophy:
 
@@ -338,7 +332,7 @@ The application follows a **minimalist monotone design** philosophy:
 
 ---
 
-## 🔧 Design Decisions
+## Design Decisions
 
 ### Architecture
 - **Flask over Django**: Lightweight framework for quick development and easy deployment
@@ -370,7 +364,7 @@ The application follows a **minimalist monotone design** philosophy:
 
 ---
 
-## 🐛 Challenges & Solutions
+## Challenges & Solutions
 
 ### Challenge 1: OCR Accuracy
 **Problem:** Raw receipt images produce inconsistent OCR results  
@@ -394,19 +388,19 @@ The application follows a **minimalist monotone design** philosophy:
 
 ---
 
-## 🚧 Future Enhancements
+## Future Enhancements
 
 ### Planned Features
-- **📧 Email Notifications**: Alerts for expiring items
-- **📊 Analytics Dashboard**: Consumption patterns, waste tracking, spending insights
-- **🛒 Shopping List Generation**: Auto-generate lists based on low stock
-- **👥 Multi-user Support**: Family accounts with role-based access
-- **📱 Progressive Web App**: Installable mobile app experience
-- **🌙 Dark Mode**: Eye-friendly theme for night use
-- **📤 Export/Import**: CSV and JSON data portability
-- **🔔 Browser Notifications**: Push alerts for expiry warnings
-- **🏪 Store Integration**: Barcode scanning for product info
-- **🤖 ML Improvements**: Custom receipt format training
+- **Email Notifications**: Alerts for expiring items
+- **Analytics Dashboard**: Consumption patterns, waste tracking, spending insights
+- **Shopping List Generation**: Auto-generate lists based on low stock
+- **Multi-user Support**: Family accounts with role-based access
+- **Progressive Web App**: Installable mobile app experience
+- **Dark Mode**: Eye-friendly theme for night use
+- **Export/Import**: CSV and JSON data portability
+- **Browser Notifications**: Push alerts for expiry warnings
+- **Store Integration**: Barcode scanning for product info
+- **ML Improvements**: Custom receipt format training
 
 ### Technical Improvements
 - **Redis Caching**: Faster dashboard statistics
@@ -458,7 +452,7 @@ The application follows a **minimalist monotone design** philosophy:
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Here's how you can help:
 
@@ -484,11 +478,11 @@ Contributions are welcome! Here's how you can help:
 5. Submit a PR with your screenshots
 
 **Needed screenshots:**
-- ✅ Dashboard with real inventory data
-- ✅ OCR scanning workflow (mobile camera → upload → review)
-- ✅ Add/Edit item forms
-- ✅ Expiry warnings in action
-- ✅ Category statistics and analytics
+- Dashboard with real inventory data
+- OCR scanning workflow (mobile camera → upload → review)
+- Add/Edit item forms
+- Expiry warnings in action
+- Category statistics and analytics
 
 ### Bug Reports
 - Use GitHub Issues
@@ -502,7 +496,7 @@ Contributions are welcome! Here's how you can help:
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - **CS50**: Course structure and guidance
 - **Flask Documentation**: Web framework reference
@@ -527,29 +521,29 @@ Contributions are welcome! Here's how you can help:
 3. 네이티브 앱처럼 사용
 
 **장점:**
-- ✅ 설치 즉시 사용 가능
-- ✅ 오프라인 지원
-- ✅ 푸시 알림 (선택사항)
-- ✅ 네이티브 앱 느낌의 전체 화면
-- ✅ 자동 업데이트
+- 설치 즉시 사용 가능
+- 오프라인 지원
+- 푸시 알림 (선택사항)
+- 네이티브 앱 느낌의 전체 화면
+- 자동 업데이트
 
 ### 앱스토어 배포
 
 Google Play Store 및 Apple App Store에 배포하고 싶으신가요?
 
-📱 **배포 가이드:**
+**배포 가이드:**
 - [앱스토어 배포 전체 가이드](APP_STORE_GUIDE.md)
 - [메타데이터 및 설명](APP_STORE_METADATA.md)
 - [빠른 배포 가이드](DEPLOYMENT.md)
 
 **지원 플랫폼:**
-- 🤖 Google Play Store (TWA)
+- Google Play Store (TWA)
 - 🍎 Apple App Store (PWA Builder / Capacitor)
-- 🌐 웹 (PWA)
+- 웹 (PWA)
 
 ---
 
-## 🚀 클라우드 배포
+## 클라우드 배포
 
 ### Heroku 배포 (5분 안에)
 
@@ -585,21 +579,21 @@ docker-compose up -d
 
 ---
 
-## �📜 License
+## �License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 **MIT License Summary:**
-- ✅ Commercial use
-- ✅ Modification
-- ✅ Distribution
-- ✅ Private use
-- ❌ Liability
-- ❌ Warranty
+- Commercial use
+- Modification
+- Distribution
+- Private use
+- Liability
+- Warranty
 
 ---
 
-## 👨‍💻 Author
+## Author
 
 **Deokhwa Jeong**  
 CS50 Final Project - 2026
