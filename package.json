@@ -1,0 +1,38 @@
+{
+  "name": "grocery-inventory-tracker",
+  "version": "1.0.0",
+  "description": "Smart grocery inventory management with OCR receipt scanning",
+  "main": "app.py",
+  "scripts": {
+    "capacitor:init": "npx cap init 'Grocery Tracker' 'com.grocerytracker.app' --web-dir='static'",
+    "capacitor:add:android": "npx cap add android",
+    "capacitor:add:ios": "npx cap add ios",
+    "capacitor:sync": "npx cap sync",
+    "capacitor:copy": "npx cap copy",
+    "capacitor:open:android": "npx cap open android",
+    "capacitor:open:ios": "npx cap open ios",
+    "build:android": "npx cap build android",
+    "build:ios": "npx cap build ios"
+  },
+  "keywords": [
+    "grocery",
+    "inventory",
+    "tracker",
+    "ocr",
+    "receipt",
+    "scanning",
+    "pwa"
+  ],
+  "author": "Grocery Tracker Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/camera": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
+  }
+}

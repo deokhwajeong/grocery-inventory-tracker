@@ -1,0 +1,97 @@
+{% extends "layout.html" %}
+
+{% block title %}Review OCR Results{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">📝 Review Scanned Items</h1>
+        
+        <div class="alert alert-info">
+            <strong>Review and edit the items below before adding to your inventory.</strong>
+            Uncheck items you don't want to add, and edit any incorrect information.
+        </div>
+        
+        <form method="POST" action="/ocr/review">
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead class="table-primary">
+                        <tr>
+                            <th width="50">
+                                <input type="checkbox" id="select-all" checked>
+                            </th>
+                            <th>Item Name</th>
+                            <th width="100">Quantity</th>
+                            <th width="150">Purchase Date</th>
+                            <th width="150">Expiry Date</th>
+                            <th width="150">Category</th>
+                            <th width="100">Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                        <tr>
+                            <td class="text-center">
+                                <input type="checkbox" name="selected" value="{{ loop.index0 }}" class="item-checkbox" checked>
+                            </td>
+                            <td>
+                                <input type="text" class="form-control form-control-sm" name="name_{{ loop.index0 }}" value="{{ item['name'] }}">
+                            </td>
+                            <td>
+                                <input type="number" class="form-control form-control-sm" name="quantity_{{ loop.index0 }}" value="{{ item['quantity'] }}" min="1">
+                            </td>
+                            <td>
+                                <input type="date" class="form-control form-control-sm" name="purchase_date_{{ loop.index0 }}" value="{{ item['purchase_date'] }}">
+                            </td>
+                            <td>
+                                <input type="date" class="form-control form-control-sm" name="expiry_date_{{ loop.index0 }}">
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm" name="category_{{ loop.index0 }}">
+                                    {% for cat in categories %}
+                                    <option value="{{ cat }}" {% if cat == item.get('category', 'Other') %}selected{% endif %}>{{ cat }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td class="text-center">
+                                {% set confidence = item.get('confidence', 50) | int %}
+                                {% if confidence >= 80 %}
+                                    <span class="badge bg-success" title="High confidence">{{ confidence }}%</span>
+                                {% elif confidence >= 60 %}
+                                    <span class="badge bg-primary" title="Good confidence">{{ confidence }}%</span>
+                                {% elif confidence >= 40 %}
+                                    <span class="badge bg-warning" title="Medium confidence">{{ confidence }}%</span>
+                                {% else %}
+                                    <span class="badge bg-danger" title="Low confidence - please verify">{{ confidence }}%</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="d-grid gap-2 mt-4">
+                <button type="submit" class="btn btn-primary btn-lg">✓ Add Selected Items</button>
+                <a href="/ocr" class="btn btn-secondary">Cancel & Scan Again</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Select/deselect all checkboxes
+    document.getElementById('select-all').addEventListener('change', function() {
+        const checkboxes = document.querySelectorAll('.item-checkbox');
+        checkboxes.forEach(cb => cb.checked = this.checked);
+    });
+    
+    // Update select-all checkbox when individual checkboxes change
+    document.querySelectorAll('.item-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            const allChecked = Array.from(document.querySelectorAll('.item-checkbox')).every(cb => cb.checked);
+            document.getElementById('select-all').checked = allChecked;
+        });
+    });
+</script>
+{% endblock %}

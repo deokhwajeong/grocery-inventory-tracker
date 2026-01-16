@@ -1,0 +1,34 @@
+{
+  "appId": "com.grocerytracker.app",
+  "appName": "Grocery Tracker",
+  "webDir": "static",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "http://localhost:5000",
+    "cleartext": true,
+    "androidScheme": "https"
+  },
+  "android": {
+    "buildOptions": {
+      "keystorePath": "release-key.keystore",
+      "keystoreAlias": "grocery-tracker"
+    }
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "scheme": "Grocery Tracker"
+  },
+  "plugins": {
+    "Camera": {
+      "permissions": {
+        "camera": "required",
+        "photos": "required"
+      }
+    },
+    "Filesystem": {
+      "permissions": {
+        "publicStorage": "readWrite"
+      }
+    }
+  }
+}

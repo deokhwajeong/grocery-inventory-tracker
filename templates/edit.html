@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+
+{% block title %}Edit Item{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h1 class="mb-4">✏️ Edit Grocery Item</h1>
+        
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+        
+        <form method="POST" action="/edit/{{ item['id'] }}" class="grocery-form">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="name" class="form-label">Item Name *</label>
+                    <input type="text" class="form-control" id="name" name="name" value="{{ item['name'] }}" required>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label for="quantity" class="form-label">Quantity *</label>
+                    <input type="number" class="form-control" id="quantity" name="quantity" min="1" value="{{ item['quantity'] }}" required>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="purchase_date" class="form-label">Purchase Date *</label>
+                    <input type="date" class="form-control" id="purchase_date" name="purchase_date" value="{{ item['purchase_date'] }}" required>
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label for="expiry_date" class="form-label">Expiry Date</label>
+                    <input type="date" class="form-control" id="expiry_date" name="expiry_date" value="{{ item['expiry_date'] or '' }}">
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="category" class="form-label">Category</label>
+                <select class="form-select" id="category" name="category">
+                    {% for cat in categories %}
+                    <option value="{{ cat }}" {% if cat == (item['category'] or 'Other') %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="mb-3">
+                <label for="notes" class="form-label">Notes</label>
+                <textarea class="form-control" id="notes" name="notes" rows="2">{{ item['notes'] or '' }}</textarea>
+            </div>
+            
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary">Update Item</button>
+                <a href="/" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

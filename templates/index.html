@@ -1,0 +1,142 @@
+{% extends "layout.html" %}
+
+{% block title %}Inventory Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">📦 My Fridge Inventory</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <!-- Statistics Dashboard -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <h5>📊 Total Items</h5>
+                    <h2>{{ total_items }}</h2>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card expiring">
+                    <h5>⚠️ Expiring Soon</h5>
+                    <h2>{{ expiring_soon }}</h2>
+                    <small>Within 7 days</small>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card">
+                    <h5>🏷️ Categories</h5>
+                    <h2>{{ categories_count|length }}</h2>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Search and Filter -->
+        <form method="GET" action="/" class="mb-4">
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <input type="text" class="form-control" name="search" placeholder="🔍 Search items..." value="{{ current_search }}">
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="category">
+                        <option value="">All Categories</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat }}" {% if cat == current_category %}selected{% endif %}>{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" name="sort">
+                        <option value="purchase_date" {% if current_sort == 'purchase_date' %}selected{% endif %}>Sort by Purchase Date</option>
+                        <option value="expiry_date" {% if current_sort == 'expiry_date' %}selected{% endif %}>Sort by Expiry Date</option>
+                        <option value="name" {% if current_sort == 'name' %}selected{% endif %}>Sort by Name</option>
+                        <option value="quantity" {% if current_sort == 'quantity' %}selected{% endif %}>Sort by Quantity</option>
+                        <option value="category" {% if current_sort == 'category' %}selected{% endif %}>Sort by Category</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Filter</button>
+                </div>
+            </div>
+        </form>
+        
+        {% if groceries %}
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-primary">
+                    <tr>
+                        <th>Item Name</th>
+                        <th>Category</th>
+                        <th>Quantity</th>
+                        <th>Purchase Date</th>
+                        <th>Expiry Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in groceries %}
+                    <tr class="{% if item['expiry_status'] == 'expired' %}table-danger{% elif item['expiry_status'] == 'warning' %}table-warning{% endif %}">
+                        <td>
+                            <strong>{{ item['name'] }}</strong>
+                            {% if item['notes'] %}
+                            <br><small class="text-muted">{{ item['notes'] }}</small>
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-secondary">{{ item['category'] or 'Other' }}</span></td>
+                        <td>{{ item['quantity'] }}</td>
+                        <td>{{ item['purchase_date'] }}</td>
+                        <td>
+                            {% if item['expiry_date'] %}
+                                {{ item['expiry_date'] }}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item['expiry_status'] == 'expired' %}
+                                <span class="badge bg-danger">Expired</span>
+                            {% elif item['expiry_status'] == 'warning' %}
+                                <span class="badge bg-warning text-dark">{{ item['days_until_expiry'] }} days left</span>
+                            {% elif item['expiry_status'] == 'good' %}
+                                <span class="badge bg-success">Fresh</span>
+                            {% else %}
+                                <span class="badge bg-secondary">No expiry</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="/edit/{{ item['id'] }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <a href="/delete/{{ item['id'] }}" 
+                               class="btn btn-sm btn-outline-danger" 
+                               onclick="return confirm('Are you sure you want to delete {{ item['name'] }}?')">
+                                Delete
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">
+            <p class="mb-0">Your fridge is empty! <a href="/add">Add your first item</a> or <a href="/ocr">scan a receipt</a></p>
+        </div>
+        {% endif %}
+        
+        <div class="mt-4">
+            <a href="/add" class="btn btn-primary">+ Add New Item</a>
+            <a href="/ocr" class="btn btn-success">📸 Scan Receipt</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

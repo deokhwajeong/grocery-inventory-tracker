@@ -1,0 +1,209 @@
+{% extends "layout.html" %}
+
+{% block title %}Scan Receipt{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <h1 class="mb-4">📸 Scan Receipt with OCR</h1>
+        
+        <div class="alert alert-info">
+            <strong>How it works:</strong>
+            <ul class="mb-0">
+                <li>Take a photo of your grocery receipt or upload an existing image</li>
+                <li>Our OCR system will automatically extract items, quantities, and dates</li>
+                <li>Items will be added to your inventory automatically</li>
+            </ul>
+        </div>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <div class="card">
+            <div class="card-body">
+                <form method="POST" action="/ocr" enctype="multipart/form-data" id="upload-form">
+                    <div class="mb-4">
+                        <label class="form-label d-block mb-3">Choose an option:</label>
+                        
+                        <!-- Camera Capture Button (Mobile) -->
+                        <div class="d-grid gap-2 mb-3">
+                            <label for="camera-input" class="btn btn-success btn-lg">
+                                📷 Take Photo with Camera
+                            </label>
+                            <input 
+                                type="file" 
+                                class="d-none" 
+                                id="camera-input" 
+                                name="receipt" 
+                                accept="image/*"
+                                capture="environment">
+                        </div>
+                        
+                        <!-- File Upload Button -->
+                        <div class="d-grid gap-2">
+                            <label for="file-input" class="btn btn-outline-primary btn-lg">
+                                🖼️ Upload Existing Photo
+                            </label>
+                            <input 
+                                type="file" 
+                                class="d-none" 
+                                id="file-input" 
+                                name="receipt" 
+                                accept="image/*">
+                        </div>
+                        
+                        <div class="form-text mt-2">
+                            Supported formats: JPG, PNG, GIF, BMP (max 16MB)
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <div id="preview-container" style="display: none;">
+                            <label class="form-label">Preview:</label>
+                            <img id="image-preview" src="" alt="Preview" class="img-fluid rounded" style="max-height: 400px;">
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2" id="submit-buttons" style="display: none;">
+                        <button type="submit" class="btn btn-primary btn-lg" id="process-btn">
+                            <span class="spinner-border spinner-border-sm d-none" id="loading-spinner"></span>
+                            <span id="btn-text">🔍 Process Receipt</span>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="resetForm()">Choose Different Photo</button>
+                        
+                        <!-- Processing Status -->
+                        <div id="processing-status" class="card mt-3 d-none">
+                            <div class="card-body">
+                                <h6 class="card-title">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    Processing Receipt...
+                                </h6>
+                                <div class="progress mt-2" style="height: 25px;">
+                                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                         role="progressbar" style="width: 0%">
+                                        <span id="progress-text">0%</span>
+                                    </div>
+                                </div>
+                                <p class="mt-2 mb-0 small text-muted" id="status-message">
+                                    Uploading image...
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2" id="cancel-button">
+                        <a href="/" class="btn btn-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="mt-4">
+            <h5>Tips for best results:</h5>
+            <ul>
+                <li>Ensure the receipt is well-lit and in focus</li>
+                <li>Capture the entire receipt in the photo</li>
+                <li>Avoid shadows and glare</li>
+                <li>Keep the receipt flat and straight</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    let selectedFile = null;
+    
+    // Handle camera input
+    document.getElementById('camera-input').addEventListener('change', function(e) {
+        handleFileSelect(e);
+    });
+    
+    // Handle file input
+    document.getElementById('file-input').addEventListener('change', function(e) {
+        handleFileSelect(e);
+    });
+    
+    function handleFileSelect(e) {
+        const file = e.target.files[0];
+        if (file) {
+            selectedFile = file;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('image-preview').src = e.target.result;
+                document.getElementById('preview-container').style.display = 'block';
+                document.getElementById('submit-buttons').style.display = 'block';
+                document.getElementById('cancel-button').style.display = 'none';
+            }
+            reader.readAsDataURL(file);
+        }
+    }
+    
+    function resetForm() {
+        document.getElementById('camera-input').value = '';
+        document.getElementById('file-input').value = '';
+        document.getElementById('preview-container').style.display = 'none';
+        document.getElementById('submit-buttons').style.display = 'none';
+        document.getElementById('cancel-button').style.display = 'block';
+        selectedFile = null;
+    }
+    
+    // Show loading spinner on submit
+    document.getElementById('upload-form').addEventListener('submit', function(e) {
+        // Check if a file is selected
+        const cameraFile = document.getElementById('camera-input').files[0];
+        const uploadFile = document.getElementById('file-input').files[0];
+        
+        if (!cameraFile && !uploadFile) {
+            e.preventDefault();
+            alert('Please select a photo first!');
+            return false;
+        }
+        
+        // Show processing status
+        document.getElementById('loading-spinner').classList.remove('d-none');
+        document.getElementById('process-btn').disabled = true;
+        document.getElementById('processing-status').classList.remove('d-none');
+        
+        // Simulate progress (since actual OCR happens server-side)
+        simulateProgress();
+    });
+    
+    function simulateProgress() {
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const statusMessage = document.getElementById('status-message');
+        
+        const stages = [
+            { percent: 20, message: 'Uploading image...' },
+            { percent: 40, message: 'Preprocessing image...' },
+            { percent: 60, message: 'Extracting text with OCR...' },
+            { percent: 80, message: 'Parsing receipt items...' },
+            { percent: 95, message: 'Validating results...' }
+        ];
+        
+        let currentStage = 0;
+        const interval = setInterval(() => {
+            if (currentStage < stages.length) {
+                const stage = stages[currentStage];
+                progressBar.style.width = stage.percent + '%';
+                progressText.textContent = stage.percent + '%';
+                statusMessage.textContent = stage.message;
+                currentStage++;
+            } else {
+                clearInterval(interval);
+                progressBar.style.width = '100%';
+                progressText.textContent = '100%';
+                statusMessage.textContent = 'Complete! Redirecting...';
+            }
+        }, 800);
+    }
+</script>
+{% endblock %}
