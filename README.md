@@ -125,29 +125,141 @@ Built with Flask, SQLite, and modern web technologies, this app combines powerfu
 *Dashboard statistics showing item distribution across 9 categories*
 
 ---
-## � Active Project
+## 🎬 Active Project
 
-**OCR Enhancement Project (2026 Q1)**
+### 🚀 OCR Enhancement Project (2026 Q1)
 
-We're actively improving OCR accuracy and mobile experience!
+We're actively improving OCR accuracy and mobile experience across all platforms!
 
-- **Goal**: 85% OCR accuracy, perfect mobile camera support
-- **Timeline**: Jan 16 - Mar 15, 2026 (8 weeks)
-- **Current Phase**: Phase 2 - Accuracy Improvement
-- **Progress**: 20% complete
+#### 📊 Project Overview
+| Aspect | Details |
+|--------|---------|
+| **Goal** | 85% OCR accuracy + perfect mobile support (iOS/Android) |
+| **Timeline** | Jan 16 - Mar 15, 2026 (8 weeks) |
+| **Current Phase** | Phase 2 - Accuracy Improvement (Week 3-4) |
+| **Progress** | 20% complete (Phase 1 ✅) |
+| **Team** | Open for contributions |
 
-**Quick Links**:
-- [Project Board](https://github.com/deokhwajeong/grocery-inventory-tracker/projects) - Track progress
-- [Project Overview](.github/PROJECT_OCR_ENHANCEMENT.md) - Detailed plan & metrics
-- [Quick Start](.github/PROJECT_QUICKSTART.md) - Get started in 3 steps
-- [GitHub Projects Setup](.github/GITHUB_PROJECTS_SETUP.md) - Board configuration
+#### 🎯 Key Metrics & Targets
 
-**Key Metrics**:
-- OCR Accuracy: 70% → 85% (target)
-- Processing Time: 15s → 10s (target)
-- Mobile Compatibility: 60% → 95% (target)
+**Technical Metrics**:
+| Metric | Current | Target | Status |
+|--------|---------|--------|--------|
+| OCR Accuracy | 70% | 85% | 🚧 In Progress |
+| Processing Time | 15s | 10s | 🚧 In Progress |
+| Mobile Compatibility | 60% | 95% | 🚧 In Progress |
+| Product Database | 50 items | 500 items | 🚧 In Progress |
+| Test Coverage | 0% | 80% | 📋 Planned |
+
+**User Experience Metrics**:
+- Manual Correction Rate: 60% → 30% (target)
+- OCR Usage Rate: Current → 50% (target)
+- User Retry Rate: Current → <15% (target)
+- Auto-categorization Accuracy: 0% → 75% (target)
+
+#### 📋 Development Roadmap
+
+**Phase 1: Foundation (Week 1-2) ✅ COMPLETE**
+- [x] Advanced image preprocessing (deskewing, CLAHE, sharpening)
+- [x] AI-based product name normalization
+- [x] Confidence scoring system (0-100%)
+- [x] Mobile camera integration (iOS/Android)
+- [x] Comprehensive documentation
+
+**Phase 2: Accuracy Improvement (Week 3-4) 🚧 IN PROGRESS**
+- [ ] Expand product database (50 → 500 items)
+- [ ] Receipt type-specific parsing (supermarket, convenience, restaurant)
+- [ ] Improve price/quantity extraction (target: 85%+ accuracy)
+- [ ] Build 100-sample test dataset for validation
+- [ ] Achieve 80%+ accuracy on test receipts
+
+**Phase 3: UX Enhancement (Week 5-6) 📅 PLANNED**
+- [ ] Real-time OCR progress indicators
+- [ ] Automatic image quality feedback
+- [ ] Batch receipt processing (multiple receipts at once)
+- [ ] Offline mode support (PWA)
+- [ ] Mobile optimization for 5+ major devices
+
+**Phase 4: Advanced Features (Week 7-8) 💡 FUTURE**
+- [ ] QR code & barcode scanning
+- [ ] ML-based personalized learning
+- [ ] Receipt history management & analytics
+- [ ] Statistics dashboard with consumption patterns
+- [ ] API endpoints for mobile apps
+
+#### 🎫 Work Items (8 Issues)
+
+**Critical Priority (P0)** 🔴 - Start immediately:
+1. **#1** - Expand Product Database (100 → 500 items) - 8h
+2. **#2** - Implement Receipt Type-Specific Parsing Logic - 6h
+
+**High Priority (P1)** 🟠 - This week:
+3. **#3** - Improve Price/Quantity Extraction Accuracy - 10h
+4. **#4** - Build Test Dataset for OCR Accuracy Measurement - 16h
+5. **#6** - Optimize OCR Processing Time (15s → 10s) - 12h
+6. **#7** - Achieve 80% Unit Test Coverage - 20h
+
+**Medium Priority (P2)** 🟡 - This sprint:
+7. **#5** - Batch Receipt Processing Feature - 12h
+
+**Low Priority (P3)** 🟢 - Backlog:
+8. **#8** - QR Code and Barcode Scanning Feature - 16h
+
+**Total Estimated Time**: 100 hours (~2.5 weeks, full-time basis)
+
+#### 📚 Project Documentation
+
+**Core Documents**:
+- 📖 [Project Enhancement Plan](.github/PROJECT_OCR_ENHANCEMENT.md) - Complete 8-week roadmap with detailed metrics
+- 🚀 [Quick Start Guide](.github/PROJECT_QUICKSTART.md) - Get started in 3 steps
+- 🛠️ [GitHub Projects Setup](.github/GITHUB_PROJECTS_SETUP.md) - Board configuration & automation
+- 📋 [Issues Summary](.github/ISSUES_CREATED.md) - All 8 issues with priorities
+- 📝 [Project Guide](.github/CREATE_PROJECT_GUIDE.md) - Step-by-step project creation
+
+**User Guides**:
+- 📚 [OCR Feature Guide](OCR_GUIDE.md) - Comprehensive feature documentation
+- ⚡ [OCR Quick Start](OCR_QUICKSTART.md) - 5-minute tutorial
+- 📰 [OCR Upgrade Summary](OCR_UPGRADE_SUMMARY.md) - What's new in this release
+
+#### 🔗 Quick Links
+
+**Project Management**:
+- [GitHub Project Board](https://github.com/deokhwajeong/grocery-inventory-tracker/projects) - Real-time progress tracking
+- [GitHub Issues](https://github.com/deokhwajeong/grocery-inventory-tracker/issues) - All 8 work items
+- [GitHub Labels](https://github.com/deokhwajeong/grocery-inventory-tracker/labels) - P0-P3 priorities
+
+**Implementation**:
+- [OCR Advanced Module](ocr_advanced.py) - AI normalization & enhancement logic
+- [OCR Processor](ocr_processor.py) - Image processing & text extraction
+- [OCR Templates](templates/ocr.html) - Mobile camera interface
+
+**Discussions**:
+- [GitHub Discussions](https://github.com/deokhwajeong/grocery-inventory-tracker/discussions) - Ideas & feedback
+- [Create New Issue](https://github.com/deokhwajeong/grocery-inventory-tracker/issues/new) - Report bugs or suggest features
+
+#### 🎓 How to Contribute
+
+**Want to help?** Pick any issue marked with your skill level:
+- 🔴 **P0 (Critical)**: High impact, should start soon
+- 🟠 **P1 (High)**: Important features for this release
+- 🟡 **P2 (Medium)**: Nice-to-have enhancements
+- 🟢 **P3 (Low)**: Future improvements & nice features
+
+See [Contributing](#-contributing) section below for detailed instructions.
+
+#### 📊 Progress Tracking
+
+\`\`\`
+Phase 1: ████████████████████ 100% (Complete)
+Phase 2: ████░░░░░░░░░░░░░░░░  20% (In Progress - Week 3/4)
+Phase 3: ░░░░░░░░░░░░░░░░░░░░   0% (Planned)
+Phase 4: ░░░░░░░░░░░░░░░░░░░░   0% (Future)
+
+Overall: ████░░░░░░░░░░░░░░░░  20% Complete
+\`\`\`
 
 ---
+
 
 ## �Motivation
 The inspiration for this project came from my daily routine.  
