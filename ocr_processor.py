@@ -294,8 +294,8 @@ def extract_dates_from_text(text: str) -> Optional[str]:
         (r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', 'dmy'),
         # Short year: 24.01.15
         (r'(\d{2})[.\s]*(\d{1,2})[.\s]*(\d{1,2})', 'ymd_short'),
-        # Korean date format with Hangul characters: 2024년 1월 15일 (year month day)
-        (r'(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일', 'ymd'),
+        # Korean romanized date format: 2024nyeon 1wol 15il
+        (r'(\d{4})\s*nyeon\s*(\d{1,2})\s*wol\s*(\d{1,2})\s*il', 'ymd'),
     ]
     
     current_year = datetime.now().year
@@ -364,11 +364,11 @@ def extract_quantity_and_price(line: str) -> Tuple[int, Optional[str]]:
     quantity = 1
     price = None
     
-    # Quantity patterns: 2x, 3X, 5×, 2ea (ea=each in Korean), x2, *2
+    # Quantity patterns: 2x, 3X, 5×, 2ea, x2, *2
     quantity_patterns = [
         r'(\d+)\s*[xX×*]\s*',      # 2x, 3X
         r'[xX×*]\s*(\d+)',           # x2, *2
-        r'(\d+)\s*개',               # 2ea (Korean: 2개)
+        r'(\d+)\s*gae',              # 2gae (romanized Korean: ea/pieces)
         r'(\d+)\s*EA',               # 2EA
     ]
     
@@ -383,11 +383,11 @@ def extract_quantity_and_price(line: str) -> Tuple[int, Optional[str]]:
             except (ValueError, IndexError):
                 continue
     
-    # Price patterns: ₩1,000, $5.99, 1000won (won=Korean currency), 5,000
+    # Price patterns: ₩1,000, $5.99, 1000won, 5,000
     price_patterns = [
         r'₩\s*([\d,]+\.?\d*)',       # ₩1,000
         r'\$\s*([\d,]+\.?\d*)',       # $5.99
-        r'([\d,]+)\s*원',             # 1000원 (Korean won)
+        r'([\d,]+)\s*won',            # 1000won (Korean currency)
         r'([\d,]+\.?\d*)\s*$',        # 1,000 at end of line
     ]
     
@@ -419,8 +419,8 @@ def calculate_confidence_score(item: Dict) -> float:
     if len(name) >= 5:
         score += 10
     
-    # Has Korean characters (common in Korean receipts)
-    if re.search(r'[가-힣]', name):
+    # Has romanized Korean text (common patterns)
+    if re.search(r'(gae|won|nyeon|wol)', name, re.IGNORECASE):
         score += 10
     
     # Has English characters
@@ -463,17 +463,17 @@ def parse_receipt_text(text: str) -> List[Dict]:
         'receipt', 'store', 'address', 'tel', 'phone', 'tax', 'total', 'subtotal',
         'change', 'card', 'cash', 'thank', 'welcome', 'visit', 'vat', 'qty',
         'amount', 'payment', 'balance', 'tender', 'customer', 'cashier',
-        # Korean words: receipt, address, phone, total, subtotal, vat, taxable, card, cash
-        '영수증', '주소', '전화', '합계', '소계', '부가세', '과세', '카드', '현금',
-        # Korean words: thanks, visit, customer, cashier, change, payment, settle, total, total
-        '감사', '방문', '고객', '캐시어', '거스름', '지불', '결제', '총', '계',
-        # Korean words: business, representative, manager, store, number, date, date, time, time
-        '사업자', '대표', '담당', '매장', '번호', '날짜', 'date', 'time', '시간'
+        # Romanized Korean: receipt, address, phone, total, subtotal, vat, taxable, card, cash
+        'yeongsujeung', 'juso', 'jeonhwa', 'hapgye', 'sogye', 'bugase', 'gwase', 'kadeu', 'hyeongeum',
+        # Romanized Korean: thanks, visit, customer, cashier, change, payment, settle, total
+        'gamsa', 'bangmun', 'gogaek', 'kaesieo', 'geoseureum', 'jibul', 'gyeolje', 'chong', 'gye',
+        # Romanized Korean: business, representative, manager, store, number, date, time
+        'saeopja', 'daepyo', 'damdang', 'maejang', 'beonho', 'naljja', 'date', 'time', 'sigan'
     ]
     
     # Pattern for receipt item lines (usually: item name + quantity/price)
-    # 개 = ea (each), 원 = won (Korean currency)
-    item_indicators = [r'\d+[xX×]', r'₩', r'\$', r'원', r'개', r'\d{1,3}[,\d]*']
+    # gae = ea (each), won = Korean currency
+    item_indicators = [r'\d+[xX×]', r'₩', r'\$', r'won', r'gae', r'\d{1,3}[,\d]*']
     
     for line_num, line in enumerate(lines):
         line = line.strip()
@@ -487,7 +487,7 @@ def parse_receipt_text(text: str) -> List[Dict]:
             continue
         
         # Skip lines that are just numbers or prices
-        if re.match(r'^[\d,.\s₩$원]+$', line):
+        if re.match(r'^[\d,.\s₩$won]+$', line):
             continue
         
         # Check if line likely contains an item (has price or quantity indicator)
@@ -500,18 +500,18 @@ def parse_receipt_text(text: str) -> List[Dict]:
             # Clean item name
             item_name = line
             
-            # Remove quantity markers (개 = ea/each in Korean, EA = each)
-            item_name = re.sub(r'\d+\s*[xX×*개EA]\s*', '', item_name)
+            # Remove quantity markers (gae = ea/each in romanized Korean, EA = each)
+            item_name = re.sub(r'\d+\s*[xX×*gaeEA]\s*', '', item_name)
             item_name = re.sub(r'[xX×*]\s*\d+', '', item_name)
             
             # Remove price markers
             item_name = re.sub(r'₩\s*[\d,]+\.?\d*', '', item_name)
             item_name = re.sub(r'\$\s*[\d,]+\.?\d*', '', item_name)
-            item_name = re.sub(r'[\d,]+\s*원', '', item_name)
+            item_name = re.sub(r'[\d,]+\s*won', '', item_name)
             item_name = re.sub(r'[\d,]+\.?\d*\s*$', '', item_name)
             
-            # Clean special characters (keep Korean Hangul, English, numbers, spaces)
-            item_name = re.sub(r'[^\w\s가-힣0-9a-zA-Z]', ' ', item_name)
+            # Clean special characters (keep English, numbers, spaces, common romanized patterns)
+            item_name = re.sub(r'[^\w\s0-9a-zA-Z-]', ' ', item_name)
             item_name = ' '.join(item_name.split())  # Normalize whitespace
             
             # Validate item name
