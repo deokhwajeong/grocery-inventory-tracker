@@ -1,0 +1,248 @@
+{% extends "layout.html" %}
+
+{% block title %}Barcode Scanner{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <h1 class="mb-4">📱 Barcode Scanner</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>Scan Product Barcode</h3>
+            </div>
+            <div class="card-body">
+                <!-- Camera View -->
+                <div id="camera-container" class="text-center mb-3">
+                    <video id="barcode-video" width="100%" height="300" style="border: 2px solid #ccc; border-radius: 8px; background: #000;"></video>
+                    <div id="barcode-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80%; height: 100px; border: 2px solid #00ff00; display: none;"></div>
+                </div>
+                
+                <div class="text-center mb-3">
+                    <button id="start-camera" class="btn btn-primary btn-lg">
+                        📷 Start Camera
+                    </button>
+                    <button id="stop-camera" class="btn btn-danger btn-lg" style="display: none;">
+                        ⏹️ Stop Camera
+                    </button>
+                </div>
+                
+                <!-- Manual Barcode Entry -->
+                <div class="text-center mb-3">
+                    <hr>
+                    <p class="text-muted">Or enter barcode manually:</p>
+                    <div class="input-group">
+                        <input type="text" id="manual-barcode" class="form-control" placeholder="Enter barcode number">
+                        <button class="btn btn-primary" onclick="lookupBarcode()">
+                            🔍 Lookup
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Scanned Result -->
+                <div id="barcode-result" style="display: none;" class="alert alert-success">
+                    <h5>✅ Barcode Detected!</h5>
+                    <p id="barcode-number" class="mb-2"></p>
+                    <div id="product-info"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add to Inventory Form (shown after successful scan) -->
+        <div id="add-form" style="display: none;" class="card">
+            <div class="card-header">
+                <h3>Add to Inventory</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('add') }}">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Product Name*</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Category*</label>
+                        <select class="form-select" id="category" name="category" required>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="quantity" class="form-label">Quantity*</label>
+                            <input type="number" class="form-control" id="quantity" name="quantity" value="1" min="1" required>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label for="purchase_date" class="form-label">Purchase Date*</label>
+                            <input type="date" class="form-control" id="purchase_date" name="purchase_date" required>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="expiry_date" class="form-label">Expiry Date</label>
+                        <input type="date" class="form-control" id="expiry_date" name="expiry_date">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">Notes</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="2"></textarea>
+                    </div>
+                    
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-primary btn-lg">➕ Add to Inventory</button>
+                        <button type="button" class="btn btn-secondary btn-lg" onclick="resetScanner()">🔄 Scan Another</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="text-center mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">← Back to Inventory</a>
+            <a href="{{ url_for('ocr') }}" class="btn btn-primary">📸 Scan Receipt Instead</a>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/@zxing/library@latest"></script>
+<script>
+let codeReader = null;
+let selectedDeviceId = null;
+
+// Set today's date as default
+document.getElementById('purchase_date').valueAsDate = new Date();
+
+// Start camera for barcode scanning
+document.getElementById('start-camera').addEventListener('click', async () => {
+    try {
+        codeReader = new ZXing.BrowserMultiFormatReader();
+        
+        const videoInputDevices = await codeReader.listVideoInputDevices();
+        
+        if (videoInputDevices.length === 0) {
+            alert('No camera found');
+            return;
+        }
+        
+        // Use back camera if available (mobile)
+        selectedDeviceId = videoInputDevices.find(device => 
+            device.label.toLowerCase().includes('back')
+        )?.deviceId || videoInputDevices[0].deviceId;
+        
+        document.getElementById('start-camera').style.display = 'none';
+        document.getElementById('stop-camera').style.display = 'inline-block';
+        document.getElementById('barcode-overlay').style.display = 'block';
+        
+        codeReader.decodeFromVideoDevice(selectedDeviceId, 'barcode-video', (result, err) => {
+            if (result) {
+                console.log('Barcode detected:', result.text);
+                handleBarcodeDetection(result.text);
+            }
+            if (err && !(err instanceof ZXing.NotFoundException)) {
+                console.error(err);
+            }
+        });
+        
+    } catch (error) {
+        console.error('Camera error:', error);
+        alert('Error accessing camera: ' + error.message);
+    }
+});
+
+// Stop camera
+document.getElementById('stop-camera').addEventListener('click', () => {
+    stopCamera();
+});
+
+function stopCamera() {
+    if (codeReader) {
+        codeReader.reset();
+        document.getElementById('start-camera').style.display = 'inline-block';
+        document.getElementById('stop-camera').style.display = 'none';
+        document.getElementById('barcode-overlay').style.display = 'none';
+    }
+}
+
+// Handle barcode detection
+function handleBarcodeDetection(barcode) {
+    stopCamera();
+    
+    document.getElementById('barcode-number').textContent = `Barcode: ${barcode}`;
+    document.getElementById('barcode-result').style.display = 'block';
+    document.getElementById('manual-barcode').value = barcode;
+    
+    // Lookup barcode in database
+    fetch(`/api/barcode/${barcode}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.name) {
+                document.getElementById('product-info').innerHTML = `
+                    <p><strong>Product:</strong> ${data.name}</p>
+                    <p><strong>Category:</strong> ${data.category}</p>
+                `;
+                
+                // Pre-fill form
+                document.getElementById('name').value = data.name;
+                document.getElementById('category').value = data.category;
+                document.getElementById('add-form').style.display = 'block';
+                
+                // Scroll to form
+                document.getElementById('add-form').scrollIntoView({ behavior: 'smooth' });
+            } else {
+                document.getElementById('product-info').innerHTML = `
+                    <p class="text-warning">⚠️ Product not found in database. Please enter details manually.</p>
+                `;
+                document.getElementById('add-form').style.display = 'block';
+            }
+        })
+        .catch(error => {
+            console.error('Lookup error:', error);
+            document.getElementById('product-info').innerHTML = `
+                <p class="text-warning">⚠️ Could not lookup product. Please enter details manually.</p>
+            `;
+            document.getElementById('add-form').style.display = 'block';
+        });
+}
+
+// Manual barcode lookup
+function lookupBarcode() {
+    const barcode = document.getElementById('manual-barcode').value.trim();
+    if (barcode) {
+        handleBarcodeDetection(barcode);
+    } else {
+        alert('Please enter a barcode number');
+    }
+}
+
+// Reset scanner
+function resetScanner() {
+    document.getElementById('barcode-result').style.display = 'none';
+    document.getElementById('add-form').style.display = 'none';
+    document.getElementById('manual-barcode').value = '';
+    document.getElementById('name').value = '';
+    document.getElementById('quantity').value = '1';
+    document.getElementById('expiry_date').value = '';
+    document.getElementById('notes').value = '';
+}
+
+// Handle Enter key in manual input
+document.getElementById('manual-barcode').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        lookupBarcode();
+    }
+});
+</script>
+{% endblock %}

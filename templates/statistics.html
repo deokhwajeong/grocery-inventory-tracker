@@ -1,0 +1,217 @@
+{% extends "layout.html" %}
+
+{% block title %}Statistics & Insights{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">📊 Statistics & Insights</h1>
+        
+        <p class="lead">Track your grocery patterns and reduce food waste</p>
+        
+        <!-- Key Metrics -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h5>💰 Items Saved</h5>
+                    <h2>{{ items_saved }}</h2>
+                    <small>Used before expiry</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card expiring">
+                    <h5>🗑️ Items Wasted</h5>
+                    <h2>{{ total_waste }}</h2>
+                    <small>Expired items</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h5>♻️ Waste Reduction</h5>
+                    <h2>{{ "%.1f"|format(waste_reduction) }}%</h2>
+                    <small>Success rate</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card">
+                    <h5>⏰ Avg Shelf Life</h5>
+                    <h2>{{ "%.0f"|format(avg_shelf_life or 0) }}</h2>
+                    <small>Days</small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Waste Impact -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>🌱 Environmental Impact</h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h5>Food Waste Prevented</h5>
+                        <div class="progress mb-3" style="height: 30px;">
+                            <div class="progress-bar bg-success" role="progressbar" 
+                                 style="width: {{ waste_reduction }}%">
+                                {{ "%.1f"|format(waste_reduction) }}%
+                            </div>
+                        </div>
+                        <p class="text-muted">
+                            By using this app, you've prevented <strong>{{ items_saved }}</strong> items from going to waste!
+                            {% if items_saved > 10 %}
+                            That's approximately {{ "%.1f"|format(items_saved * 0.5) }} kg of food saved! 🎉
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="col-md-6">
+                        <h5>Monthly Savings Estimate</h5>
+                        {% set monthly_savings = items_saved * 3.5 %}
+                        <h2 class="text-success">${{ "%.2f"|format(monthly_savings) }}</h2>
+                        <p class="text-muted">Based on average grocery prices</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Category Distribution -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>📦 Category Distribution</h3>
+            </div>
+            <div class="card-body">
+                {% if category_stats %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Items</th>
+                                    <th>Total Quantity</th>
+                                    <th>Distribution</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% set total = category_stats|sum(attribute='item_count') %}
+                                {% for stat in category_stats %}
+                                <tr>
+                                    <td><span class="badge bg-secondary">{{ stat['category'] }}</span></td>
+                                    <td>{{ stat['item_count'] }}</td>
+                                    <td>{{ stat['total_quantity'] }}</td>
+                                    <td>
+                                        <div class="progress" style="height: 20px;">
+                                            {% set percentage = (stat['item_count'] / total * 100) if total > 0 else 0 %}
+                                            <div class="progress-bar" role="progressbar" 
+                                                 style="width: {{ percentage }}%">
+                                                {{ "%.1f"|format(percentage) }}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">No data available yet. Start adding items to see statistics!</div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Monthly Trends -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>📈 Purchase Trends (Last 6 Months)</h3>
+            </div>
+            <div class="card-body">
+                {% if monthly_trends %}
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Month</th>
+                                    <th>Items Added</th>
+                                    <th>Total Quantity</th>
+                                    <th>Trend</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for trend in monthly_trends %}
+                                <tr>
+                                    <td>{{ trend['month'] }}</td>
+                                    <td>{{ trend['items_added'] }}</td>
+                                    <td>{{ trend['total_quantity'] }}</td>
+                                    <td>
+                                        {% if loop.index0 < monthly_trends|length - 1 %}
+                                            {% set prev = monthly_trends[loop.index0 + 1] %}
+                                            {% if trend['items_added'] > prev['items_added'] %}
+                                                <span class="badge bg-success">↗ Growing</span>
+                                            {% elif trend['items_added'] < prev['items_added'] %}
+                                                <span class="badge bg-warning">↘ Declining</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">→ Stable</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="badge bg-secondary">-</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">No trend data available yet</div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Waste by Category -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3>🗑️ Waste Analysis by Category</h3>
+            </div>
+            <div class="card-body">
+                {% if waste_stats %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Expired Items</th>
+                                    <th>Wasted Quantity</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for stat in waste_stats %}
+                                <tr>
+                                    <td><span class="badge bg-secondary">{{ stat['category'] }}</span></td>
+                                    <td>{{ stat['expired_count'] }}</td>
+                                    <td>{{ stat['wasted_quantity'] }}</td>
+                                    <td>
+                                        {% if stat['expired_count'] > 5 %}
+                                            <span class="badge bg-warning">⚠️ High waste - check purchase patterns</span>
+                                        {% elif stat['expired_count'] > 2 %}
+                                            <span class="badge bg-info">Monitor this category</span>
+                                        {% else %}
+                                            <span class="badge bg-success">✓ Good</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-success">🎉 No wasted items! You're doing great!</div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="text-center mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">← Back to Inventory</a>
+            <a href="{{ url_for('shopping_list') }}" class="btn btn-primary">🛒 Smart Shopping List</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

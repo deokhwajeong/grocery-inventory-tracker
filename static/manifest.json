@@ -1,12 +1,86 @@
 {
-  "name": "Grocery Inventory Tracker",
+  "name": "Grocery Inventory Tracker - Smart Food Management",
   "short_name": "Grocery Tracker",
-  "description": "Smart grocery inventory management with OCR receipt scanning",
+  "description": "AI-powered grocery management with OCR scanning, expiry alerts, waste tracking, and smart shopping lists",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f5f5f0",
   "theme_color": "#8b7355",
   "orientation": "portrait-primary",
+  "categories": ["food", "lifestyle", "productivity"],
+  "screenshots": [
+    {
+      "src": "/static/screenshots/dashboard.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "Dashboard with inventory overview"
+    },
+    {
+      "src": "/static/screenshots/ocr-scan.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "AI-powered receipt scanning"
+    },
+    {
+      "src": "/static/screenshots/statistics.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "Waste reduction analytics"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add Item",
+      "short_name": "Add",
+      "description": "Quickly add a new item to inventory",
+      "url": "/add",
+      "icons": [
+        {
+          "src": "/static/icons/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Scan Receipt",
+      "short_name": "Scan",
+      "description": "Scan receipt with OCR",
+      "url": "/ocr",
+      "icons": [
+        {
+          "src": "/static/icons/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Shopping List",
+      "short_name": "Shopping",
+      "description": "View smart shopping suggestions",
+      "url": "/shopping-list",
+      "icons": [
+        {
+          "src": "/static/icons/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Barcode Scanner",
+      "short_name": "Barcode",
+      "description": "Scan product barcode",
+      "url": "/barcode",
+      "icons": [
+        {
+          "src": "/static/icons/icon-96x96.png",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ],
   "icons": [
     {
       "src": "/static/icons/icon-72x72.png",

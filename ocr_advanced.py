@@ -16,37 +16,58 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Common product name database for normalization
+# Keys are canonical English names, values are common variants including Korean
 COMMON_PRODUCTS = {
-    # Korean products
-    '우유': ['milk', '밀크', '牛乳'],
-    '계란': ['egg', '에그', '란', '卵'],
-    '빵': ['bread', '브레드', 'パン'],
-    '사과': ['apple', '애플', 'リンゴ'],
-    '바나나': ['banana', '버나나'],
-    '토마토': ['tomato', '토메이토'],
-    '양파': ['onion', '어니언'],
-    '감자': ['potato', '포테이토'],
-    '당근': ['carrot', '캐럿'],
-    '배추': ['cabbage', '캐비지'],
-    '돼지고기': ['pork', '포크'],
-    '소고기': ['beef', '비프'],
-    '닭고기': ['chicken', '치킨'],
-    '생수': ['water', '워터', '미네랄워터'],
-    '콜라': ['cola', '코카콜라', 'coke'],
-    '사이다': ['sprite', '스프라이트', '칠성사이다'],
-    '맥주': ['beer', '비어'],
-    '소주': ['soju', '소쥬'],
-    '라면': ['ramen', '라멘', 'instant noodle'],
-    '김치': ['kimchi', '김챠', 'ｷﾑﾁ'],
-    '두부': ['tofu', '豆腐'],
-    '치즈': ['cheese', '치이즈'],
-    '요거트': ['yogurt', '요구르트', 'ヨーグルト'],
-    '아이스크림': ['ice cream', '아이스크림'],
-    '과자': ['snack', '스낵'],
-    '초콜릿': ['chocolate', '초콜렛', 'チョコレート'],
-    '커피': ['coffee', '카페', 'コーヒー'],
-    '차': ['tea', '티', '茶'],
-    '쌀': ['rice', '米'],
+    # Dairy and Eggs
+    'milk': ['우유', '밀크', '牛乳'],
+    'egg': ['계란', '에그', '란', '卵'],
+    
+    # Bakery
+    'bread': ['빵', '브레드', 'パン'],
+    
+    # Fruits
+    'apple': ['사과', '애플', 'リンゴ'],
+    'banana': ['바나나', '버나나'],
+    'tomato': ['토마토', '토메이토'],
+    
+    # Vegetables
+    'onion': ['양파', '어니언'],
+    'potato': ['감자', '포테이토'],
+    'carrot': ['당근', '캐럿'],
+    'cabbage': ['배추', '캐비지'],
+    
+    # Meat
+    'pork': ['돼지고기', '포크'],
+    'beef': ['소고기', '비프'],
+    'chicken': ['닭고기', '치킨'],
+    
+    # Beverages
+    'water': ['생수', '워터', '미네랄워터'],
+    'cola': ['콜라', '코카콜라', 'coke'],
+    'sprite': ['사이다', '스프라이트', '칠성사이다'],
+    'beer': ['맥주', '비어'],
+    'soju': ['소주', '소쥬'],
+    
+    # Prepared Foods
+    'ramen': ['라면', '라멘', 'instant noodle'],
+    'kimchi': ['김치', '김챠', 'ｷﾑﾁ'],
+    'tofu': ['두부', '豆腐'],
+    
+    # Dairy Products
+    'cheese': ['치즈', '치이즈'],
+    'yogurt': ['요거트', '요구르트', 'ヨーグルト'],
+    'ice cream': ['아이스크림'],
+    
+    # Snacks and Sweets
+    'snack': ['과자', '스낵'],
+    'chocolate': ['초콜릿', '초콜렛', 'チョコレート'],
+    
+    # Hot Beverages
+    'coffee': ['커피', '카페', 'コーヒー'],
+    'tea': ['차', '티', '茶'],
+    
+    # Grains
+    'rice': ['쌀', '米'],
 }
 
 # Reversed mapping for faster lookup
@@ -66,14 +87,17 @@ OCR_CORRECTIONS = {
     # Korean character confusions
     '둬': '돼', '쥬': '주', '툐': '퇴',
     
-    # Brand name fixes
+    # Brand name fixes (Korean brands: 롯데=LOTTE, 삼성=SAMSUNG, 엘지=LG, 농심=Nongshim, 오뚜기=Ottogi)
     '롯데': 'LOTTE', '삼성': 'SAMSUNG', '엘지': 'LG',
     'CJ': 'CJ', '농심': '농심', '오뚜기': '오뚜기',
 }
 
 # Noise words to remove from product names
+# Korean units: 개=ea, 봉=bundle, 팩=pack, 입=piece, 병=bottle, 캔=can, 박스=box
+# Korean measurements: 그램=gram, 킬로=kilo, 리터=liter
+# Korean quality words: 신선=fresh, 프리미엄=premium, 유기농=organic
 NOISE_WORDS = {
-    'korean': ['개', '봉', '팩', '입', '병', '캔', '박스', 'box', 'pack', 'ea', 'pcs'],
+    'units': ['개', '봉', '팩', '입', '병', '캔', '박스', 'box', 'pack', 'ea', 'pcs'],
     'measurement': ['g', 'kg', 'ml', 'l', 'oz', 'lb', '그램', '킬로', '리터'],
     'quality': ['신선', '프리미엄', 'premium', 'fresh', 'organic', '유기농'],
 }
