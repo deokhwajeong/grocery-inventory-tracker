@@ -567,6 +567,324 @@ def ocr_review():
     return render_template('ocr_review.html', items=items, categories=CATEGORIES)
 
 
+@app.route('/api/notifications/check', methods=['GET'])
+def check_notifications():
+    """
+    API endpoint to check for items that need notifications.
+    Returns items expiring today and tomorrow.
+    """
+    try:
+        conn = get_db_connection()
+        
+        # Items expiring today
+        today_items = conn.execute(
+            'SELECT * FROM groceries WHERE expiry_date = date("now") ORDER BY name'
+        ).fetchall()
+        
+        # Items expiring tomorrow
+        tomorrow_items = conn.execute(
+            'SELECT * FROM groceries WHERE expiry_date = date("now", "+1 day") ORDER BY name'
+        ).fetchall()
+        
+        # Items expiring within 3 days
+        soon_items = conn.execute(
+            'SELECT * FROM groceries WHERE expiry_date > date("now", "+1 day") AND expiry_date <= date("now", "+3 days") ORDER BY expiry_date, name'
+        ).fetchall()
+        
+        conn.close()
+        
+        return {
+            'today': [dict(item) for item in today_items],
+            'tomorrow': [dict(item) for item in tomorrow_items],
+            'soon': [dict(item) for item in soon_items]
+        }
+    except Exception as e:
+        logger.error(f"Error checking notifications: {e}")
+        return {'error': str(e)}, 500
+
+
+@app.route('/shopping-list')
+def shopping_list():
+    """
+    Smart shopping list that automatically suggests items based on:
+    - Items that are running low (quantity <= 2)
+    - Items that expired recently (might need replacement)
+    - Frequently purchased items
+    """
+    try:
+        conn = get_db_connection()
+        
+        # Low stock items
+        low_stock = conn.execute(
+            'SELECT * FROM groceries WHERE quantity <= 2 AND quantity > 0 ORDER BY quantity ASC'
+        ).fetchall()
+        
+        # Recently expired items (last 7 days)
+        expired_recent = conn.execute(
+            'SELECT * FROM groceries WHERE expiry_date < date("now") AND expiry_date >= date("now", "-7 days") ORDER BY expiry_date DESC'
+        ).fetchall()
+        
+        # Frequently purchased items (appears more than 3 times in history)
+        # This is a simplified version - in production you'd have a purchase history table
+        frequently_purchased = conn.execute(
+            '''SELECT name, category, COUNT(*) as purchase_count, 
+               MAX(purchase_date) as last_purchase
+               FROM groceries 
+               GROUP BY LOWER(name) 
+               HAVING purchase_count >= 2
+               ORDER BY purchase_count DESC, last_purchase DESC
+               LIMIT 10'''
+        ).fetchall()
+        
+        conn.close()
+        
+        return render_template('shopping_list.html',
+                             low_stock=low_stock,
+                             expired_recent=expired_recent,
+                             frequently_purchased=frequently_purchased,
+                             categories=CATEGORIES)
+    
+    except Exception as e:
+        logger.error(f"Error loading shopping list: {e}")
+        flash('An error occurred while loading the shopping list', 'error')
+        return redirect(url_for('index'))
+
+
+@app.route('/statistics')
+def statistics():
+    """
+    Advanced statistics and insights dashboard.
+    Shows spending patterns, waste tracking, and inventory trends.
+    """
+    try:
+        conn = get_db_connection()
+        
+        # Category distribution
+        category_stats = conn.execute(
+            '''SELECT category, COUNT(*) as item_count, SUM(quantity) as total_quantity
+               FROM groceries 
+               GROUP BY category 
+               ORDER BY item_count DESC'''
+        ).fetchall()
+        
+        # Monthly purchase trends (last 6 months)
+        monthly_trends = conn.execute(
+            '''SELECT strftime('%Y-%m', purchase_date) as month, 
+               COUNT(*) as items_added, SUM(quantity) as total_quantity
+               FROM groceries 
+               WHERE purchase_date >= date('now', '-6 months')
+               GROUP BY month 
+               ORDER BY month DESC'''
+        ).fetchall()
+        
+        # Waste tracking - expired items
+        waste_stats = conn.execute(
+            '''SELECT category, COUNT(*) as expired_count, SUM(quantity) as wasted_quantity
+               FROM groceries 
+               WHERE expiry_date < date('now')
+               GROUP BY category 
+               ORDER BY expired_count DESC'''
+        ).fetchall()
+        
+        # Total waste count
+        total_waste = conn.execute(
+            'SELECT COUNT(*) as count FROM groceries WHERE expiry_date < date("now")'
+        ).fetchone()['count']
+        
+        # Items saved from waste (consumed before expiry)
+        items_saved = conn.execute(
+            '''SELECT COUNT(*) as count FROM groceries 
+               WHERE expiry_date >= date('now') OR expiry_date IS NULL'''
+        ).fetchone()['count']
+        
+        # Average shelf life
+        avg_shelf_life = conn.execute(
+            '''SELECT AVG(JULIANDAY(expiry_date) - JULIANDAY(purchase_date)) as avg_days
+               FROM groceries 
+               WHERE expiry_date IS NOT NULL AND purchase_date IS NOT NULL'''
+        ).fetchone()['avg_days']
+        
+        conn.close()
+        
+        # Calculate waste reduction percentage
+        total_items = total_waste + items_saved
+        waste_reduction = (items_saved / total_items * 100) if total_items > 0 else 0
+        
+        return render_template('statistics.html',
+                             category_stats=category_stats,
+                             monthly_trends=monthly_trends,
+                             waste_stats=waste_stats,
+                             total_waste=total_waste,
+                             items_saved=items_saved,
+                             waste_reduction=waste_reduction,
+                             avg_shelf_life=avg_shelf_life)
+    
+    except Exception as e:
+        logger.error(f"Error loading statistics: {e}")
+        flash('An error occurred while loading statistics', 'error')
+        return redirect(url_for('index'))
+
+
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
+    """
+    User settings page for notification preferences and app configuration.
+    """
+    if request.method == 'POST':
+        # Save notification preferences to session or database
+        session['notifications_enabled'] = request.form.get('notifications_enabled') == 'on'
+        session['notification_time'] = request.form.get('notification_time', '09:00')
+        session['expiry_warning_days'] = int(request.form.get('expiry_warning_days', 7))
+        
+        flash('Settings saved successfully!', 'success')
+        return redirect(url_for('settings'))
+    
+    # Load current settings
+    notifications_enabled = session.get('notifications_enabled', True)
+    notification_time = session.get('notification_time', '09:00')
+    expiry_warning_days = session.get('expiry_warning_days', 7)
+    
+    return render_template('settings.html',
+                         notifications_enabled=notifications_enabled,
+                         notification_time=notification_time,
+                         expiry_warning_days=expiry_warning_days)
+
+
+@app.route('/barcode')
+def barcode():
+    """
+    Barcode scanner page for quick product addition.
+    """
+    return render_template('barcode.html', categories=CATEGORIES)
+
+
+@app.route('/api/export')
+def export_data():
+    """
+    Export inventory data as CSV file.
+    """
+    import csv
+    from io import StringIO
+    from flask import make_response
+    
+    try:
+        conn = get_db_connection()
+        groceries = conn.execute('SELECT * FROM groceries ORDER BY purchase_date DESC').fetchall()
+        conn.close()
+        
+        # Create CSV
+        si = StringIO()
+        writer = csv.writer(si)
+        writer.writerow(['ID', 'Name', 'Quantity', 'Category', 'Purchase Date', 'Expiry Date', 'Notes'])
+        
+        for item in groceries:
+            writer.writerow([
+                item['id'],
+                item['name'],
+                item['quantity'],
+                item['category'],
+                item['purchase_date'],
+                item['expiry_date'] or '',
+                item['notes'] or ''
+            ])
+        
+        output = make_response(si.getvalue())
+        output.headers["Content-Disposition"] = "attachment; filename=grocery_inventory.csv"
+        output.headers["Content-type"] = "text/csv"
+        return output
+        
+    except Exception as e:
+        logger.error(f"Error exporting data: {e}")
+        return {'error': str(e)}, 500
+
+
+@app.route('/api/clear-expired', methods=['POST'])
+def clear_expired():
+    """
+    Remove all expired items from inventory.
+    """
+    try:
+        conn = get_db_connection()
+        result = conn.execute('DELETE FROM groceries WHERE expiry_date < date("now")')
+        count = result.rowcount
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"Cleared {count} expired items")
+        return {'success': True, 'count': count}
+        
+    except Exception as e:
+        logger.error(f"Error clearing expired items: {e}")
+        return {'error': str(e)}, 500
+
+
+@app.route('/api/reset', methods=['POST'])
+def reset_data():
+    """
+    Reset all data - DELETE EVERYTHING.
+    """
+    try:
+        conn = get_db_connection()
+        conn.execute('DELETE FROM groceries')
+        conn.commit()
+        conn.close()
+        
+        logger.warning("All data has been reset!")
+        return {'success': True}
+        
+    except Exception as e:
+        logger.error(f"Error resetting data: {e}")
+        return {'error': str(e)}, 500
+
+
+@app.route('/api/share/<int:item_id>')
+def share_item(item_id):
+    """
+    Generate shareable link for an inventory item.
+    """
+    try:
+        conn = get_db_connection()
+        item = conn.execute('SELECT * FROM groceries WHERE id = ?', (item_id,)).fetchone()
+        conn.close()
+        
+        if not item:
+            return {'error': 'Item not found'}, 404
+        
+        # In production, you'd generate a secure share token
+        # For now, return item details
+        return {
+            'id': item['id'],
+            'name': item['name'],
+            'quantity': item['quantity'],
+            'category': item['category'],
+            'expiry_date': item['expiry_date'],
+            'share_url': f"{request.host_url}items/{item_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error sharing item: {e}")
+        return {'error': str(e)}, 500
+
+
+@app.route('/api/barcode/<barcode_number>')
+def barcode_lookup(barcode_number):
+    """
+    API endpoint for barcode lookup.
+    In production, this would integrate with a product database API.
+    """
+    # This is a placeholder - in production you'd integrate with:
+    # - Open Food Facts API
+    # - UPC Database
+    # - Barcode Lookup API
+    
+    return {
+        'barcode': barcode_number,
+        'name': f'Product {barcode_number}',
+        'category': 'Other',
+        'message': 'Barcode lookup feature - integrate with product database API'
+    }
+
+
 if __name__ == '__main__':
     # Initialize database if it doesn't exist
     try:

@@ -1,0 +1,213 @@
+{% extends "layout.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 offset-md-2">
+        <h1 class="mb-4">⚙️ Settings</h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <form method="POST">
+            <!-- Notification Settings -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3>🔔 Notification Settings</h3>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="notifications_enabled" 
+                                   name="notifications_enabled" {% if notifications_enabled %}checked{% endif %}>
+                            <label class="form-check-label" for="notifications_enabled">
+                                Enable Push Notifications
+                            </label>
+                        </div>
+                        <small class="text-muted">Receive alerts for expiring items</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="notification_time" class="form-label">Daily Notification Time</label>
+                        <input type="time" class="form-control" id="notification_time" 
+                               name="notification_time" value="{{ notification_time }}">
+                        <small class="text-muted">When should we send daily expiry reminders?</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="expiry_warning_days" class="form-label">Expiry Warning Period</label>
+                        <select class="form-select" id="expiry_warning_days" name="expiry_warning_days">
+                            <option value="1" {% if expiry_warning_days == 1 %}selected{% endif %}>1 day</option>
+                            <option value="3" {% if expiry_warning_days == 3 %}selected{% endif %}>3 days</option>
+                            <option value="7" {% if expiry_warning_days == 7 %}selected{% endif %}>7 days</option>
+                            <option value="14" {% if expiry_warning_days == 14 %}selected{% endif %}>14 days</option>
+                        </select>
+                        <small class="text-muted">Alert me when items expire within this period</small>
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary" id="request-notification-permission">
+                        🔔 Enable Browser Notifications
+                    </button>
+                </div>
+            </div>
+            
+            <!-- App Preferences -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3>🎨 App Preferences</h3>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Default View</label>
+                        <select class="form-select" name="default_view">
+                            <option value="grid">Grid View</option>
+                            <option value="list" selected>List View</option>
+                            <option value="compact">Compact View</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Default Sort Order</label>
+                        <select class="form-select" name="default_sort">
+                            <option value="purchase_date">Purchase Date (Newest)</option>
+                            <option value="expiry_date">Expiry Date (Soonest)</option>
+                            <option value="name">Name (A-Z)</option>
+                            <option value="category">Category</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Data Management -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3>💾 Data Management</h3>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-secondary" onclick="exportData()">
+                            📤 Export Inventory Data
+                        </button>
+                        <small class="text-muted d-block mt-1">Download your inventory as CSV</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-warning" onclick="clearExpiredItems()">
+                            🗑️ Clear All Expired Items
+                        </button>
+                        <small class="text-muted d-block mt-1">Remove all items past their expiry date</small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-danger" onclick="confirmReset()">
+                            ⚠️ Reset All Data
+                        </button>
+                        <small class="text-muted d-block mt-1">WARNING: This will delete all your data!</small>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- About -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h3>ℹ️ About</h3>
+                </div>
+                <div class="card-body">
+                    <p><strong>Grocery Inventory Tracker</strong></p>
+                    <p>Version 2.0.0</p>
+                    <p class="text-muted">
+                        A smart grocery management app with OCR scanning, expiry tracking,
+                        waste reduction analytics, and AI-powered shopping suggestions.
+                    </p>
+                    <p>
+                        <a href="https://github.com/yourusername/grocery-tracker" class="btn btn-sm btn-outline-secondary">
+                            📖 Documentation
+                        </a>
+                        <a href="https://github.com/yourusername/grocery-tracker/issues" class="btn btn-sm btn-outline-secondary">
+                            🐛 Report Issue
+                        </a>
+                    </p>
+                </div>
+            </div>
+            
+            <div class="text-center">
+                <button type="submit" class="btn btn-primary btn-lg">💾 Save Settings</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary btn-lg">← Back to Inventory</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// Request notification permission
+document.getElementById('request-notification-permission').addEventListener('click', async () => {
+    if (!('Notification' in window)) {
+        alert('This browser does not support notifications');
+        return;
+    }
+    
+    if (Notification.permission === 'granted') {
+        alert('Notifications are already enabled!');
+        return;
+    }
+    
+    const permission = await Notification.requestPermission();
+    
+    if (permission === 'granted') {
+        new Notification('Grocery Tracker', {
+            body: 'Notifications enabled! You will receive expiry alerts.',
+            icon: '/static/icons/icon-192x192.png'
+        });
+    } else {
+        alert('Notification permission denied. Please enable in browser settings.');
+    }
+});
+
+// Export data function
+function exportData() {
+    window.location.href = '/api/export';
+}
+
+// Clear expired items
+function clearExpiredItems() {
+    if (confirm('Remove all expired items from inventory?')) {
+        fetch('/api/clear-expired', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                alert(`Removed ${data.count} expired items`);
+                window.location.reload();
+            });
+    }
+}
+
+// Reset all data
+function confirmReset() {
+    const confirmation = prompt('Type "DELETE ALL" to confirm reset:');
+    if (confirmation === 'DELETE ALL') {
+        fetch('/api/reset', { method: 'POST' })
+            .then(() => {
+                alert('All data has been reset');
+                window.location.href = '/';
+            });
+    }
+}
+
+// Check notification status on load
+document.addEventListener('DOMContentLoaded', () => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        document.getElementById('request-notification-permission').textContent = '✓ Notifications Enabled';
+        document.getElementById('request-notification-permission').classList.remove('btn-primary');
+        document.getElementById('request-notification-permission').classList.add('btn-success');
+    }
+});
+</script>
+{% endblock %}
