@@ -16,58 +16,58 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Common product name database for normalization
-# Keys are canonical English names, values are common variants including Korean
+# Keys are canonical English names, values are common variants including romanized forms
 COMMON_PRODUCTS = {
     # Dairy and Eggs
-    'milk': ['우유', '밀크', '牛乳'],
-    'egg': ['계란', '에그', '란', '卵'],
+    'milk': ['uyu', 'milkeu', 'melk'],
+    'egg': ['gyeran', 'egeu', 'ran', 'eggs'],
     
     # Bakery
-    'bread': ['빵', '브레드', 'パン'],
+    'bread': ['ppang', 'beu-re-deu', 'bred'],
     
     # Fruits
-    'apple': ['사과', '애플', 'リンゴ'],
-    'banana': ['바나나', '버나나'],
-    'tomato': ['토마토', '토메이토'],
+    'apple': ['sagwa', 'aepeul', 'aple'],
+    'banana': ['banana', 'beonana', 'bananna'],
+    'tomato': ['tomato', 'tomeyito', 'tomatoe'],
     
     # Vegetables
-    'onion': ['양파', '어니언'],
-    'potato': ['감자', '포테이토'],
-    'carrot': ['당근', '캐럿'],
-    'cabbage': ['배추', '캐비지'],
+    'onion': ['yangpa', 'eonieon', 'oinion'],
+    'potato': ['gamja', 'poteyito', 'potatoe'],
+    'carrot': ['danggeun', 'kaeret', 'carott'],
+    'cabbage': ['baechu', 'kaebiji', 'cabage'],
     
     # Meat
-    'pork': ['돼지고기', '포크'],
-    'beef': ['소고기', '비프'],
-    'chicken': ['닭고기', '치킨'],
+    'pork': ['dwaejigogi', 'pokeu', 'prok'],
+    'beef': ['sogogi', 'bipeu', 'beaf'],
+    'chicken': ['dalgogi', 'chikin', 'chiken'],
     
     # Beverages
-    'water': ['생수', '워터', '미네랄워터'],
-    'cola': ['콜라', '코카콜라', 'coke'],
-    'sprite': ['사이다', '스프라이트', '칠성사이다'],
-    'beer': ['맥주', '비어'],
-    'soju': ['소주', '소쥬'],
+    'water': ['saengsu', 'woteo', 'mineral-water'],
+    'cola': ['kola', 'kokakola', 'coke'],
+    'sprite': ['saida', 'seupeuraiteu', 'chilseong'],
+    'beer': ['maekju', 'bieo', 'beeer'],
+    'soju': ['soju', 'sojyu', 'korean-spirit'],
     
     # Prepared Foods
-    'ramen': ['라면', '라멘', 'instant noodle'],
-    'kimchi': ['김치', '김챠', 'ｷﾑﾁ'],
-    'tofu': ['두부', '豆腐'],
+    'ramen': ['ramyeon', 'ramen', 'instant noodle'],
+    'kimchi': ['kimchi', 'gimchi', 'kimchee'],
+    'tofu': ['dubu', 'bean-curd', 'soybean'],
     
     # Dairy Products
-    'cheese': ['치즈', '치이즈'],
-    'yogurt': ['요거트', '요구르트', 'ヨーグルト'],
-    'ice cream': ['아이스크림'],
+    'cheese': ['chijeu', 'chiijeu', 'cheeze'],
+    'yogurt': ['yogeoteu', 'yogureuteu', 'yoghurt'],
+    'ice cream': ['aiseukeurim', 'ice-cream', 'icecream'],
     
     # Snacks and Sweets
-    'snack': ['과자', '스낵'],
-    'chocolate': ['초콜릿', '초콜렛', 'チョコレート'],
+    'snack': ['gwaja', 'seunaek', 'snacks'],
+    'chocolate': ['chokollit', 'chokollet', 'choco'],
     
     # Hot Beverages
-    'coffee': ['커피', '카페', 'コーヒー'],
-    'tea': ['차', '티', '茶'],
+    'coffee': ['keopi', 'kape', 'cofee'],
+    'tea': ['cha', 'ti', 'tee'],
     
     # Grains
-    'rice': ['쌀', '米'],
+    'rice': ['ssal', 'rice', 'grain'],
 }
 
 # Reversed mapping for faster lookup
@@ -77,29 +77,28 @@ for canonical, variants in COMMON_PRODUCTS.items():
         PRODUCT_VARIANTS[variant.lower()] = canonical
     PRODUCT_VARIANTS[canonical.lower()] = canonical
 
-# Common OCR errors in Korean/English mixed text
+# Common OCR errors in English/romanized text
 OCR_CORRECTIONS = {
     # Number confusions
     'О': '0', 'о': '0', 'O': '0',  # Letter O to zero
     'І': '1', 'і': '1', 'l': '1',  # Letter I/l to one
-    'ㅇ': '0', 'ㅣ': '1',  # Korean characters
     
-    # Korean character confusions
-    '둬': '돼', '쥬': '주', '툐': '퇴',
+    # Romanized character confusions
+    'dwo': 'dae', 'jyu': 'ju', 'toe': 'toe',
     
-    # Brand name fixes (Korean brands: 롯데=LOTTE, 삼성=SAMSUNG, 엘지=LG, 농심=Nongshim, 오뚜기=Ottogi)
-    '롯데': 'LOTTE', '삼성': 'SAMSUNG', '엘지': 'LG',
-    'CJ': 'CJ', '농심': '농심', '오뚜기': '오뚜기',
+    # Brand name fixes (romanized Korean brands)
+    'lotte': 'LOTTE', 'lotde': 'LOTTE', 'samsung': 'SAMSUNG', 
+    'elji': 'LG', 'CJ': 'CJ', 'nongshim': 'Nongshim', 'ottogi': 'Ottogi',
 }
 
 # Noise words to remove from product names
-# Korean units: 개=ea, 봉=bundle, 팩=pack, 입=piece, 병=bottle, 캔=can, 박스=box
-# Korean measurements: 그램=gram, 킬로=kilo, 리터=liter
-# Korean quality words: 신선=fresh, 프리미엄=premium, 유기농=organic
+# Romanized units: gae=ea, bong=bundle, paek=pack, ip=piece, byeong=bottle, kaen=can, bakseu=box
+# Romanized measurements: geulaem=gram, killo=kilo, liteo=liter
+# Romanized quality words: sinseon=fresh, peurimieum=premium, yuginong=organic
 NOISE_WORDS = {
-    'units': ['개', '봉', '팩', '입', '병', '캔', '박스', 'box', 'pack', 'ea', 'pcs'],
-    'measurement': ['g', 'kg', 'ml', 'l', 'oz', 'lb', '그램', '킬로', '리터'],
-    'quality': ['신선', '프리미엄', 'premium', 'fresh', 'organic', '유기농'],
+    'units': ['gae', 'bong', 'paek', 'ip', 'byeong', 'kaen', 'bakseu', 'box', 'pack', 'ea', 'pcs'],
+    'measurement': ['g', 'kg', 'ml', 'l', 'oz', 'lb', 'geulaem', 'killo', 'liteo'],
+    'quality': ['sinseon', 'peurimieum', 'premium', 'fresh', 'organic', 'yuginong'],
 }
 
 
@@ -176,7 +175,7 @@ def clean_product_name(name: str) -> str:
     name = re.sub(r'\s+', ' ', name)
     
     # Remove leading/trailing special characters
-    name = re.sub(r'^[^\w가-힣]+|[^\w가-힣]+$', '', name)
+    name = re.sub(r'^[^\w]+|[^\w]+$', '', name)
     
     # Capitalize first letter of English words
     words = name.split()
@@ -202,16 +201,16 @@ def detect_receipt_type(text: str) -> str:
     """
     text_lower = text.lower()
     
-    # Korean major retailers
+    # Korean major retailers (romanized)
     retailers = {
-        'emart': ['이마트', 'emart', 'e-mart'],
-        'homeplus': ['홈플러스', 'homeplus'],
-        'lotte': ['롯데', 'lotte', '롯데마트'],
-        'gs25': ['gs25', 'gs 25', '지에스25'],
-        'cu': ['cu', '씨유', 'cvs'],
-        '7eleven': ['세븐일레븐', '7-eleven', '7eleven'],
-        'coupang': ['쿠팡', 'coupang'],
-        'market_kurly': ['마켓컬리', 'kurly'],
+        'emart': ['eemart', 'emart', 'e-mart', 'eemarteu'],
+        'homeplus': ['homplleoseu', 'homeplus', 'home-plus'],
+        'lotte': ['lotde', 'lotte', 'lotte-mart', 'lottemart'],
+        'gs25': ['gs25', 'gs 25', 'jieseu25'],
+        'cu': ['cu', 'ssiu', 'cvs', 'convenience'],
+        '7eleven': ['sebeunil-lebeu', '7-eleven', '7eleven'],
+        'coupang': ['kupang', 'coupang', 'coopang'],
+        'market_kurly': ['makeskeolri', 'kurly', 'market-kurly'],
     }
     
     for retailer_type, keywords in retailers.items():
@@ -219,12 +218,12 @@ def detect_receipt_type(text: str) -> str:
             logger.info(f"Receipt type detected: {retailer_type}")
             return retailer_type
     
-    # Determine by content
-    if any(word in text_lower for word in ['편의점', 'convenience', '24시간']):
+    # Determine by content (romanized Korean keywords)
+    if any(word in text_lower for word in ['pyeonuijeom', 'convenience', '24sigan', '24hour']):
         return 'convenience_store'
-    elif any(word in text_lower for word in ['마트', 'mart', 'supermarket', '슈퍼']):
+    elif any(word in text_lower for word in ['mateu', 'mart', 'supermarket', 'syupeo', 'super']):
         return 'supermarket'
-    elif any(word in text_lower for word in ['배달', 'delivery', '주문']):
+    elif any(word in text_lower for word in ['baedal', 'delivery', 'jumun', 'order']):
         return 'online'
     
     return 'unknown'
@@ -266,7 +265,7 @@ def extract_store_info(text: str) -> Dict[str, Optional[str]]:
         line = line.strip()
         if len(line) > 3 and not re.match(r'^[\d\s\-/]+$', line):
             # Avoid pure number lines
-            if re.search(r'[가-힣a-zA-Z]{2,}', line):
+            if re.search(r'[a-zA-Z0-9]{2,}', line):
                 info['name'] = line
                 break
     
@@ -440,16 +439,16 @@ def get_category_suggestion(product_name: str) -> str:
     name_lower = product_name.lower()
     
     category_keywords = {
-        'Dairy': ['우유', 'milk', '치즈', 'cheese', '요거트', 'yogurt', '버터', 'butter', 'cream'],
-        'Meat': ['고기', '돼지', '소고기', '닭', 'pork', 'beef', 'chicken', 'meat', 'ham'],
-        'Produce': ['사과', '바나나', '토마토', '양파', '감자', '당근', '배추', 'apple', 'banana', 
-                    'tomato', 'onion', 'potato', 'carrot', 'lettuce', 'fruit', '과일', '채소'],
-        'Bakery': ['빵', 'bread', '케이크', 'cake', '도넛', 'donut', 'bagel', 'muffin'],
-        'Frozen': ['아이스크림', 'ice cream', '냉동', 'frozen'],
-        'Beverages': ['물', '음료', '주스', '콜라', '사이다', '맥주', '소주', 'water', 'juice', 
-                      'cola', 'beer', 'soju', 'coffee', '커피', 'tea', '차'],
-        'Snacks': ['과자', '스낵', '초콜릿', 'snack', 'chocolate', 'chip', 'candy', '사탕'],
-        'Pantry': ['라면', '쌀', 'ramen', 'rice', 'pasta', '통조림', 'can', 'noodle'],
+        'Dairy': ['uyu', 'milk', 'chijeu', 'cheese', 'yogeoteu', 'yogurt', 'beoteo', 'butter', 'cream'],
+        'Meat': ['gogi', 'dwaeji', 'sogogi', 'dak', 'pork', 'beef', 'chicken', 'meat', 'ham'],
+        'Produce': ['sagwa', 'banana', 'tomato', 'yangpa', 'gamja', 'danggeun', 'baechu', 'apple',
+                    'onion', 'potato', 'carrot', 'lettuce', 'fruit', 'gwail', 'chaeso', 'vegetable'],
+        'Bakery': ['ppang', 'bread', 'keikeu', 'cake', 'donut', 'bagel', 'muffin'],
+        'Frozen': ['aiseukeurim', 'ice cream', 'naengdong', 'frozen'],
+        'Beverages': ['mul', 'eumryo', 'juseu', 'kola', 'saida', 'maekju', 'soju', 'water', 'juice',
+                      'cola', 'beer', 'sprite', 'coffee', 'keopi', 'tea', 'cha', 'drink'],
+        'Snacks': ['gwaja', 'seunaek', 'chokollit', 'snack', 'chocolate', 'chip', 'candy', 'satang'],
+        'Pantry': ['ramyeon', 'ssal', 'ramen', 'rice', 'pasta', 'tongjorim', 'can', 'noodle'],
     }
     
     for category, keywords in category_keywords.items():
