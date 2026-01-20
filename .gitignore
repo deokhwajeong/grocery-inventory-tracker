@@ -63,3 +63,6 @@ Thumbs.db
 # Logs
 *.log
 app.log
+
+# Sample data script (for local testing)
+add_sample_data.py
