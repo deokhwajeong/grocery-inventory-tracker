@@ -33,35 +33,25 @@
                     <div class="mb-4">
                         <label class="form-label d-block mb-3">Choose an option:</label>
                         
-                        <!-- Camera Capture Button (Mobile) -->
-                        <div class="d-grid gap-2 mb-3">
-                            <label for="camera-input" class="btn btn-success btn-lg">
+                        <!-- Camera Capture Button -->
+                        <div class="d-grid gap-2 mb-3" id="camera-section">
+                            <button type="button" class="btn btn-success btn-lg" id="camera-btn">
                                 📷 Take Photo with Camera
-                            </label>
-                            <input 
-                                type="file" 
-                                class="d-none" 
-                                id="camera-input" 
-                                name="receipt" 
-                                accept="image/*"
-                                capture="environment">
+                            </button>
                         </div>
                         
                         <!-- File Upload Button -->
                         <div class="d-grid gap-2">
-                            <label for="file-input" class="btn btn-outline-primary btn-lg">
+                            <button type="button" class="btn btn-outline-primary btn-lg" id="upload-btn">
                                 🖼️ Upload Existing Photo
-                            </label>
-                            <input 
-                                type="file" 
-                                class="d-none" 
-                                id="file-input" 
-                                name="receipt" 
-                                accept="image/*">
+                            </button>
                         </div>
                         
+                        <!-- Hidden file input (fallback for web) -->
+                        <input type="file" class="d-none" id="file-input" name="receipt" accept="image/*">
+                        
                         <div class="form-text mt-2">
-                            Supported formats: JPG, PNG, GIF, BMP (max 16MB)
+                            Supported formats: JPG, PNG, GIF, BMP, WebP (max 16MB)
                         </div>
                     </div>
                     
@@ -118,36 +108,122 @@
     </div>
 </div>
 
+<script src="https://unpkg.com/@capacitor/core@6.0.0/dist/capacitor.js"></script>
+<script src="/static/camera-handler.js"></script>
 <script>
     let selectedFile = null;
+    let cameraHandler = null;
     
-    // Handle camera input
-    document.getElementById('camera-input').addEventListener('change', function(e) {
-        handleFileSelect(e);
-    });
-    
-    // Handle file input
-    document.getElementById('file-input').addEventListener('change', function(e) {
-        handleFileSelect(e);
-    });
-    
-    function handleFileSelect(e) {
-        const file = e.target.files[0];
-        if (file) {
-            selectedFile = file;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('image-preview').src = e.target.result;
-                document.getElementById('preview-container').style.display = 'block';
-                document.getElementById('submit-buttons').style.display = 'block';
-                document.getElementById('cancel-button').style.display = 'none';
+    // Initialize camera handler on page load
+    document.addEventListener('DOMContentLoaded', async function() {
+        cameraHandler = new CameraHandler();
+        
+        // Get platform info
+        const platformInfo = cameraHandler.getPlatformInfo();
+        console.log('Platform:', platformInfo);
+        
+        // Request permissions for native apps
+        if (platformInfo.isNative) {
+            const hasPermissions = await cameraHandler.requestPermissions();
+            if (!hasPermissions) {
+                alert('Camera permissions are required to use this feature.');
             }
-            reader.readAsDataURL(file);
         }
+        
+        // Show/hide camera button based on platform
+        // Always show on mobile, hide on desktop unless it's a native app
+        if (!platformInfo.isMobile && !platformInfo.isNative) {
+            document.getElementById('camera-section').style.display = 'none';
+        }
+    });
+    
+    // Camera button click handler
+    document.getElementById('camera-btn').addEventListener('click', async function() {
+        try {
+            const result = await cameraHandler.getPhoto('camera');
+            handlePhotoResult(result);
+        } catch (error) {
+            console.error('Camera error:', error);
+            alert('Failed to capture photo: ' + error.message);
+        }
+    });
+    
+    // Upload button click handler
+    document.getElementById('upload-btn').addEventListener('click', async function() {
+        try {
+            const result = await cameraHandler.getPhoto('photos');
+            handlePhotoResult(result);
+        } catch (error) {
+            console.error('Upload error:', error);
+            alert('Failed to select photo: ' + error.message);
+        }
+    });
+    
+    // Handle photo result from camera handler
+    function handlePhotoResult(result) {
+        const { dataUrl, file } = result;
+        
+        // Validate file size (16MB max)
+        const maxSize = 16 * 1024 * 1024;
+        if (file.size > maxSize) {
+            alert('File size exceeds 16MB. Please choose a smaller image.');
+            return;
+        }
+        
+        selectedFile = file;
+        
+        // Set the file to the hidden input for form submission
+        const fileInput = document.getElementById('file-input');
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+        
+        // Show preview
+        document.getElementById('image-preview').src = dataUrl;
+        document.getElementById('preview-container').style.display = 'block';
+        document.getElementById('submit-buttons').style.display = 'block';
+        document.getElementById('cancel-button').style.display = 'none';
     }
     
+    // Detect device type and hide camera button on desktop
+    function isMobileDevice() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
+            || (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+    }
+    
+    // Legacy file input handler (fallback)
+    document.getElementById('file-input').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // Validate file size (16MB max)
+        const maxSize = 16 * 1024 * 1024; // 16MB in bytes
+        if (file.size > maxSize) {
+            alert('File size exceeds 16MB. Please choose a smaller image.');
+            e.target.value = '';
+            return;
+        }
+        
+        // Validate file type
+        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
+        if (!validTypes.includes(file.type)) {
+            alert('Invalid file type. Please upload a valid image file (JPG, PNG, GIF, BMP, WebP).');
+            e.target.value = '';
+            return;
+        }
+        
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('image-preview').src = e.target.result;
+            document.getElementById('preview-container').style.display = 'block';
+            document.getElementById('submit-buttons').style.display = 'block';
+            document.getElementById('cancel-button').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+    });
+    
     function resetForm() {
-        document.getElementById('camera-input').value = '';
         document.getElementById('file-input').value = '';
         document.getElementById('preview-container').style.display = 'none';
         document.getElementById('submit-buttons').style.display = 'none';
@@ -158,10 +234,9 @@
     // Show loading spinner on submit
     document.getElementById('upload-form').addEventListener('submit', function(e) {
         // Check if a file is selected
-        const cameraFile = document.getElementById('camera-input').files[0];
         const uploadFile = document.getElementById('file-input').files[0];
         
-        if (!cameraFile && !uploadFile) {
+        if (!uploadFile) {
             e.preventDefault();
             alert('Please select a photo first!');
             return false;
