@@ -1,41 +1,21 @@
 {
-  "name": "Grocery Inventory Tracker - Smart Food Management",
+  "name": "Grocery Inventory Tracker",
   "short_name": "Grocery Tracker",
-  "description": "AI-powered grocery management with OCR scanning, expiry alerts, waste tracking, and smart shopping lists",
+  "description": "Track groceries, expiry dates, and receipts in one place.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f5f0",
-  "theme_color": "#8b7355",
+  "background_color": "#f6f7f5",
+  "theme_color": "#1f7a5a",
   "orientation": "portrait-primary",
-  "categories": ["food", "lifestyle", "productivity"],
-  "screenshots": [
-    {
-      "src": "/static/screenshots/dashboard.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "platform": "narrow",
-      "label": "Dashboard with inventory overview"
-    },
-    {
-      "src": "/static/screenshots/ocr-scan.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "platform": "narrow",
-      "label": "AI-powered receipt scanning"
-    },
-    {
-      "src": "/static/screenshots/statistics.png",
-      "sizes": "540x720",
-      "type": "image/png",
-      "platform": "narrow",
-      "label": "Waste reduction analytics"
-    }
+  "categories": [
+    "productivity",
+    "lifestyle"
   ],
   "shortcuts": [
     {
       "name": "Add Item",
       "short_name": "Add",
-      "description": "Quickly add a new item to inventory",
+      "description": "Add a new grocery item",
       "url": "/add",
       "icons": [
         {
@@ -47,32 +27,8 @@
     {
       "name": "Scan Receipt",
       "short_name": "Scan",
-      "description": "Scan receipt with OCR",
+      "description": "Scan a grocery receipt with OCR",
       "url": "/ocr",
-      "icons": [
-        {
-          "src": "/static/icons/icon-96x96.png",
-          "sizes": "96x96"
-        }
-      ]
-    },
-    {
-      "name": "Shopping List",
-      "short_name": "Shopping",
-      "description": "View smart shopping suggestions",
-      "url": "/shopping-list",
-      "icons": [
-        {
-          "src": "/static/icons/icon-96x96.png",
-          "sizes": "96x96"
-        }
-      ]
-    },
-    {
-      "name": "Barcode Scanner",
-      "short_name": "Barcode",
-      "description": "Scan product barcode",
-      "url": "/barcode",
       "icons": [
         {
           "src": "/static/icons/icon-96x96.png",
@@ -129,37 +85,6 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
-    }
-  ],
-  "categories": ["productivity", "lifestyle"],
-  "screenshots": [
-    {
-      "src": "/static/screenshots/dashboard.png",
-      "sizes": "1200x800",
-      "type": "image/png",
-      "label": "Dashboard with inventory items"
-    },
-    {
-      "src": "/static/screenshots/ocr-scan.png",
-      "sizes": "375x667",
-      "type": "image/png",
-      "label": "OCR receipt scanning"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "Add Item",
-      "short_name": "Add",
-      "description": "Add a new grocery item",
-      "url": "/add",
-      "icons": [{ "src": "/static/icons/icon-96x96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Scan Receipt",
-      "short_name": "Scan",
-      "description": "Scan a grocery receipt with OCR",
-      "url": "/ocr",
-      "icons": [{ "src": "/static/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ]
 }

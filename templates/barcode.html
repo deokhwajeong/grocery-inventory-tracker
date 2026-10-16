@@ -5,18 +5,8 @@
 {% block content %}
 <div class="row">
     <div class="col-md-8 offset-md-2">
-        <h1 class="mb-4">📱 Barcode Scanner</h1>
+        <h1 class="mb-4">Barcode Scanner</h1>
         
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
         
         <div class="card mb-4">
             <div class="card-header">
@@ -52,7 +42,7 @@
                 
                 <!-- Scanned Result -->
                 <div id="barcode-result" style="display: none;" class="alert alert-success">
-                    <h5>✅ Barcode Detected!</h5>
+                    <h5>Barcode Detected!</h5>
                     <p id="barcode-number" class="mb-2"></p>
                     <div id="product-info"></div>
                 </div>
@@ -112,7 +102,7 @@
         
         <div class="text-center mt-4">
             <a href="{{ url_for('index') }}" class="btn btn-secondary">← Back to Inventory</a>
-            <a href="{{ url_for('ocr') }}" class="btn btn-primary">📸 Scan Receipt Instead</a>
+            <a href="{{ url_for('ocr_upload') }}" class="btn btn-primary">📸 Scan Receipt Instead</a>
         </div>
     </div>
 </div>

@@ -8,42 +8,44 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 class Config:
     """Base configuration class"""
-    
+
     # Flask settings
     SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(16))
-    
+
     # Upload settings
-    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', 'uploads')
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'uploads'))
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp'}
-    
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
+
     # Database settings
-    DATABASE_PATH = os.environ.get('DATABASE_PATH', 'groceries.db')
-    SCHEMA_PATH = 'schema.sql'
-    
+    DATABASE_PATH = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'groceries.db'))
+    SCHEMA_PATH = os.path.join(BASE_DIR, 'schema.sql')
+
     # OCR settings
     OCR_LANGUAGES = os.environ.get('OCR_LANGUAGES', 'eng+kor')
     OCR_TIMEOUT = int(os.environ.get('OCR_TIMEOUT', '30'))  # seconds
-    
+
     # Categories
     CATEGORIES = [
-        'Dairy', 'Meat', 'Produce', 'Bakery', 
+        'Dairy', 'Meat', 'Produce', 'Bakery',
         'Frozen', 'Pantry', 'Beverages', 'Snacks', 'Other'
     ]
-    
+
     # Expiry settings
     EXPIRY_WARNING_DAYS = int(os.environ.get('EXPIRY_WARNING_DAYS', '7'))
-    
+
     # Logging
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-    LOG_FILE = os.environ.get('LOG_FILE', 'app.log')
-    
+    LOG_FILE = os.environ.get('LOG_FILE', os.path.join(BASE_DIR, 'app.log'))
+
     # Debug mode
     DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() in ('true', '1', 't')
-    
+
     # Server settings
     HOST = os.environ.get('FLASK_HOST', '0.0.0.0')
     PORT = int(os.environ.get('FLASK_PORT', '5000'))

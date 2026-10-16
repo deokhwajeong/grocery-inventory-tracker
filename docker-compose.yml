@@ -1,13 +1,11 @@
-version: '3.8'
-
 services:
   web:
     build: .
     ports:
       - "5000:5000"
     volumes:
-      - ./grocery.db:/app/grocery.db
-      - ./uploads:/app/uploads
+      - ./data:/app/data
     environment:
-      - FLASK_ENV=production
+      # Required in production. Example: export SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY before running docker compose}
     restart: unless-stopped

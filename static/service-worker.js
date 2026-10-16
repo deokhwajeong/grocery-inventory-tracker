@@ -1,7 +1,9 @@
-const CACHE_NAME = 'grocery-tracker-v2';
+const CACHE_NAME = 'grocery-tracker-v3';
 const urlsToCache = [
   '/',
   '/static/styles.css',
+  '/static/vendor/bootstrap/bootstrap.min.css',
+  '/static/vendor/bootstrap/bootstrap.bundle.min.js',
   '/static/manifest.json',
   '/add',
   '/ocr',
@@ -65,36 +67,43 @@ self.addEventListener('notificationclick', (event) => {
   }
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event.
+// Static assets: cache first. Pages and API calls: network first, falling
+// back to the cached copy only when offline. (The previous cache-first rule
+// for every GET served a stale inventory page after items were added.)
 self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Cache hit - return response
-        if (response) {
-          return response;
+  const request = event.request;
+  if (request.method !== 'GET') {
+    return;
+  }
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (url.pathname.startsWith('/static/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+        if (response && response.status === 200) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
-        
-        // Clone the request
-        const fetchRequest = event.request.clone();
-        
-        return fetch(fetchRequest).then((response) => {
-          // Check if valid response
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
-          
-          // Clone the response
-          const responseToCache = response.clone();
-          
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-          
-          return response;
-        });
+        return response;
+      }))
+    );
+    return;
+  }
+
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && request.mode === 'navigate') {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
       })
+      .catch(() => caches.match(request))
   );
 });
 

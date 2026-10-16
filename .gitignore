@@ -66,3 +66,6 @@ app.log
 
 # Sample data script (for local testing)
 add_sample_data.py
+
+# Docker volume for the SQLite database
+data/
