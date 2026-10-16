@@ -1,184 +1,206 @@
 {% extends "layout.html" %}
 
-{% block title %}Inventory Dashboard{% endblock %}
+{% block title %}Inventory{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-12">
-        <h1 class="mb-4">📦 My Fridge Inventory</h1>
-        
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-        
-        <!-- Statistics Dashboard -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="stat-card">
-                    <h5>📊 Total Items</h5>
-                    <h2>{{ total_items }}</h2>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="stat-card expiring">
-                    <h5>⚠️ Expiring Soon</h5>
-                    <h2>{{ expiring_soon }}</h2>
-                    <small>Within 7 days</small>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="stat-card">
-                    <h5>🏷️ Categories</h5>
-                    <h2>{{ categories_count|length }}</h2>
-                </div>
-            </div>
+<div class="page-header d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+    <div>
+        <h1 class="mb-1">My fridge inventory</h1>
+        <p class="text-muted mb-0">Everything in the kitchen, sorted by what needs attention first.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('ocr_upload') }}" class="btn btn-outline-primary">Scan receipt</a>
+        <a href="{{ url_for('add') }}" class="btn btn-primary">+ Add item</a>
+    </div>
+</div>
+
+<!-- Summary -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-label">Total items</div>
+            <div class="stat-value">{{ total_items }}</div>
+            <div class="stat-hint">in inventory</div>
         </div>
-        
-        <!-- Search and Filter -->
-        <form method="GET" action="/" class="mb-4">
-            <div class="row g-2">
-                <div class="col-md-4">
-                    <input type="text" class="form-control" name="search" placeholder="🔍 Search items..." value="{{ current_search }}">
-                </div>
-                <div class="col-md-3">
-                    <select class="form-select" name="category">
-                        <option value="">All Categories</option>
-                        {% for cat in categories %}
-                        <option value="{{ cat }}" {% if cat == current_category %}selected{% endif %}>{{ cat }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <select class="form-select" name="sort">
-                        <option value="purchase_date" {% if current_sort == 'purchase_date' %}selected{% endif %}>Sort by Purchase Date</option>
-                        <option value="expiry_date" {% if current_sort == 'expiry_date' %}selected{% endif %}>Sort by Expiry Date</option>
-                        <option value="name" {% if current_sort == 'name' %}selected{% endif %}>Sort by Name</option>
-                        <option value="quantity" {% if current_sort == 'quantity' %}selected{% endif %}>Sort by Quantity</option>
-                        <option value="category" {% if current_sort == 'category' %}selected{% endif %}>Sort by Category</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary w-100">Filter</button>
-                </div>
-            </div>
-        </form>
-        
-        {% if groceries %}
-        <div class="table-responsive">
-            <table class="table table-hover">
-                <thead class="table-primary">
-                    <tr>
-                        <th>Item Name</th>
-                        <th>Category</th>
-                        <th>Quantity</th>
-                        <th>Purchase Date</th>
-                        <th>Expiry Date</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in groceries %}
-                    <tr class="{% if item['expiry_status'] == 'expired' %}table-danger{% elif item['expiry_status'] == 'warning' %}table-warning{% endif %}">
-                        <td>
-                            <strong>{{ item['name'] }}</strong>
-                            {% if item['notes'] %}
-                            <br><small class="text-muted">{{ item['notes'] }}</small>
-                            {% endif %}
-                        </td>
-                        <td><span class="badge bg-secondary">{{ item['category'] or 'Other' }}</span></td>
-                        <td>{{ item['quantity'] }}</td>
-                        <td>{{ item['purchase_date'] }}</td>
-                        <td>
-                            {% if item['expiry_date'] %}
-                                {{ item['expiry_date'] }}
-                            {% else %}
-                                <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if item['expiry_status'] == 'expired' %}
-                                <span class="badge bg-danger">Expired</span>
-                            {% elif item['expiry_status'] == 'warning' %}
-                                <span class="badge bg-warning text-dark">{{ item['days_until_expiry'] }} days left</span>
-                            {% elif item['expiry_status'] == 'good' %}
-                                <span class="badge bg-success">Fresh</span>
-                            {% else %}
-                                <span class="badge bg-secondary">No expiry</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <a href="/edit/{{ item['id'] }}" class="btn btn-sm btn-outline-primary">✏️ Edit</a>
-                            <button onclick="shareItem({{ item['id'] }}, '{{ item['name'] }}')" class="btn btn-sm btn-outline-info">📤 Share</button>
-                            <a href="/delete/{{ item['id'] }}" 
-                               class="btn btn-sm btn-outline-danger" 
-                               onclick="return confirm('Are you sure you want to delete {{ item['name'] }}?')">
-                                🗑️ Delete
-                            </a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card stat-warning">
+            <div class="stat-label">Expiring soon</div>
+            <div class="stat-value">{{ expiring_soon }}</div>
+            <div class="stat-hint">within {{ warning_days }} days</div>
         </div>
-        {% else %}
-        <div class="alert alert-info">
-            <p class="mb-0">Your fridge is empty! <a href="/add">Add your first item</a>, <a href="/ocr">scan a receipt</a>, or <a href="/barcode">scan a barcode</a></p>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card stat-danger">
+            <div class="stat-label">Expired</div>
+            <div class="stat-value">{{ expired_count }}</div>
+            <div class="stat-hint">use or toss</div>
         </div>
-        {% endif %}
-        
-        <!-- Quick Actions -->
-        <div class="mt-4">
-            <div class="row">
-                <div class="col-md-3 mb-2">
-                    <a href="/add" class="btn btn-primary w-100">➕ Add Item</a>
-                </div>
-                <div class="col-md-3 mb-2">
-                    <a href="/ocr" class="btn btn-success w-100">📸 Scan Receipt</a>
-                </div>
-                <div class="col-md-3 mb-2">
-                    <a href="/barcode" class="btn btn-info w-100">📱 Scan Barcode</a>
-                </div>
-                <div class="col-md-3 mb-2">
-                    <a href="/shopping-list" class="btn btn-warning w-100">🛒 Shopping List</a>
-                </div>
-            </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="stat-card">
+            <div class="stat-label">Categories</div>
+            <div class="stat-value">{{ categories_count|length }}</div>
+            <div class="stat-hint">in use</div>
         </div>
     </div>
 </div>
 
+{% if use_soon %}
+<!-- Expiry warnings -->
+<section class="panel mb-4" id="use-soon">
+    <div class="panel-header">
+        <h2 class="h5 mb-0">Use these first</h2>
+        <span class="text-muted small">Expired or expiring within {{ warning_days }} days</span>
+    </div>
+    <div class="use-soon-grid">
+        {% for item in use_soon[:10] %}
+        <a href="{{ url_for('edit', id=item['id']) }}" class="use-soon-item {% if item['days_until_expiry'] < 0 %}is-expired{% elif item['days_until_expiry'] <= 2 %}is-urgent{% endif %}">
+            <div class="fw-semibold">{{ item['name'] }}</div>
+            <div class="small text-muted">{{ item['category'] or 'Other' }} &middot; qty {{ item['quantity'] }}</div>
+            <div class="use-soon-when">
+                {% if item['days_until_expiry'] < 0 %}
+                    Expired {{ -item['days_until_expiry'] }} day{{ '' if item['days_until_expiry'] == -1 else 's' }} ago
+                {% elif item['days_until_expiry'] == 0 %}
+                    Expires today
+                {% elif item['days_until_expiry'] == 1 %}
+                    Expires tomorrow
+                {% else %}
+                    {{ item['days_until_expiry'] }} days left
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% if use_soon|length > 10 %}
+    <div class="mt-3 small">
+        <a href="{{ url_for('index', sort='expiry_date') }}">and {{ use_soon|length - 10 }} more, sorted by expiry date</a>
+    </div>
+    {% endif %}
+</section>
+{% endif %}
+
+<!-- Search and filter -->
+<form method="GET" action="{{ url_for('index') }}" class="filter-bar mb-3">
+    <div class="row g-2">
+        <div class="col-12 col-md-5">
+            <input type="search" class="form-control" name="search" placeholder="Search items" aria-label="Search items" value="{{ current_search }}">
+        </div>
+        <div class="col-6 col-md-3">
+            <select class="form-select" name="category" aria-label="Category">
+                <option value="">All categories</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}" {% if cat == current_category %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <select class="form-select" name="sort" aria-label="Sort by">
+                <option value="purchase_date" {% if current_sort == 'purchase_date' %}selected{% endif %}>Newest</option>
+                <option value="expiry_date" {% if current_sort == 'expiry_date' %}selected{% endif %}>Expiry date</option>
+                <option value="name" {% if current_sort == 'name' %}selected{% endif %}>Name</option>
+                <option value="quantity" {% if current_sort == 'quantity' %}selected{% endif %}>Quantity</option>
+                <option value="category" {% if current_sort == 'category' %}selected{% endif %}>Category</option>
+            </select>
+        </div>
+        <div class="col-12 col-md-2">
+            <button type="submit" class="btn btn-dark w-100">Apply</button>
+        </div>
+    </div>
+</form>
+
+{% if groceries %}
+<div class="table-responsive panel p-0">
+    <table class="table inventory-table align-middle mb-0">
+        <thead>
+            <tr>
+                <th>Item</th>
+                <th>Category</th>
+                <th class="text-end">Qty</th>
+                <th class="d-none d-md-table-cell">Purchased</th>
+                <th>Expires</th>
+                <th>Status</th>
+                <th class="text-end">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in groceries %}
+            <tr class="row-{{ item['expiry_status'] }}">
+                <td>
+                    <div class="fw-semibold">{{ item['name'] }}</div>
+                    {% if item['notes'] %}
+                    <div class="small text-muted">{{ item['notes'] }}</div>
+                    {% endif %}
+                </td>
+                <td><span class="category-pill cat-{{ (item['category'] or 'Other')|lower }}">{{ item['category'] or 'Other' }}</span></td>
+                <td class="text-end">{{ item['quantity'] }}</td>
+                <td class="d-none d-md-table-cell text-muted">{{ item['purchase_date'] }}</td>
+                <td>{{ item['expiry_date'] or '-' }}</td>
+                <td>
+                    {% if item['expiry_status'] == 'expired' %}
+                        <span class="status status-expired">Expired</span>
+                    {% elif item['expiry_status'] == 'warning' %}
+                        <span class="status status-warning">{% if item['days_until_expiry'] == 0 %}Expires today{% else %}{{ item['days_until_expiry'] }} day{{ '' if item['days_until_expiry'] == 1 else 's' }} left{% endif %}</span>
+                    {% elif item['expiry_status'] == 'good' %}
+                        <span class="status status-good">Fresh</span>
+                    {% else %}
+                        <span class="status status-none">No date</span>
+                    {% endif %}
+                </td>
+                <td class="text-end text-nowrap">
+                    <a href="{{ url_for('edit', id=item['id']) }}" class="btn btn-sm btn-light">Edit</a>
+                    <button type="button" class="btn btn-sm btn-light share-btn" data-id="{{ item['id'] }}">Share</button>
+                    <form method="POST" action="{{ url_for('delete', id=item['id']) }}" class="d-inline delete-form" data-name="{{ item['name'] }}">
+                        <button type="submit" class="btn btn-sm btn-light text-danger">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="panel text-center py-5">
+    {% if current_search or current_category %}
+    <p class="mb-2">No items match your filters.</p>
+    <a href="{{ url_for('index') }}">Clear filters</a>
+    {% else %}
+    <p class="mb-2">Your fridge is empty.</p>
+    <p class="mb-0"><a href="{{ url_for('add') }}">Add your first item</a> or <a href="{{ url_for('ocr_upload') }}">scan a receipt</a>.</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
 <script>
-// Share item functionality
-function shareItem(itemId, itemName) {
-    fetch(`/api/share/${itemId}`)
-        .then(response => response.json())
-        .then(data => {
-            const shareText = `${itemName} - Quantity: ${data.quantity}, Category: ${data.category}${data.expiry_date ? ', Expires: ' + data.expiry_date : ''}`;
-            
-            if (navigator.share) {
-                navigator.share({
-                    title: 'Grocery Item',
-                    text: shareText,
-                    url: data.share_url
-                }).catch(err => console.log('Share cancelled:', err));
-            } else {
-                // Fallback: copy to clipboard
-                navigator.clipboard.writeText(shareText).then(() => {
-                    alert('Item details copied to clipboard!');
-                });
-            }
-        })
-        .catch(error => {
-            console.error('Share error:', error);
-            alert('Error sharing item');
-        });
-}
+// Confirm before deleting (item names come from data attributes, so quotes
+// in a name can no longer break the inline JavaScript)
+document.querySelectorAll('.delete-form').forEach(form => {
+    form.addEventListener('submit', event => {
+        if (!confirm(`Delete ${form.dataset.name}?`)) {
+            event.preventDefault();
+        }
+    });
+});
+
+// Share item details via the Web Share API, or copy them to the clipboard
+document.querySelectorAll('.share-btn').forEach(button => {
+    button.addEventListener('click', () => {
+        fetch(`/api/share/${button.dataset.id}`)
+            .then(response => response.json())
+            .then(data => {
+                const shareText = `${data.name} - Quantity: ${data.quantity}, Category: ${data.category}${data.expiry_date ? ', Expires: ' + data.expiry_date : ''}`;
+                if (navigator.share) {
+                    navigator.share({ title: 'Grocery item', text: shareText })
+                        .catch(err => console.log('Share cancelled:', err));
+                } else {
+                    navigator.clipboard.writeText(shareText)
+                        .then(() => alert('Item details copied to clipboard!'));
+                }
+            })
+            .catch(() => alert('Error sharing item'));
+    });
+});
 </script>
 {% endblock %}

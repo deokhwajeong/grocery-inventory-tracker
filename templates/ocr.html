@@ -5,67 +5,57 @@
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-md-8">
-        <h1 class="mb-4">📸 Scan Receipt with OCR</h1>
-        
-        <div class="alert alert-info">
-            <strong>How it works:</strong>
-            <ul class="mb-0">
-                <li>Take a photo of your grocery receipt or upload an existing image</li>
-                <li>Our OCR system will automatically extract items, quantities, and dates</li>
-                <li>Items will be added to your inventory automatically</li>
-            </ul>
+        <h1 class="mb-1">Scan a receipt</h1>
+        <p class="text-muted mb-4">Upload a photo of a grocery receipt. Tesseract OCR reads the line items and purchase date, then you review everything before it is saved.</p>
+
+        {% if not ocr_available %}
+        <div class="alert alert-warning">
+            <strong>OCR is unavailable on this server.</strong>
+            The Tesseract engine is not installed, so receipts cannot be read. Install <code>tesseract-ocr</code> or
+            <a href="{{ url_for('add') }}">add items manually</a>.
         </div>
+        {% endif %}
         
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
         
         <div class="card">
             <div class="card-body">
                 <form method="POST" action="/ocr" enctype="multipart/form-data" id="upload-form">
                     <div class="mb-4">
-                        <label class="form-label d-block mb-3">Choose an option:</label>
+                        <label class="form-label d-block mb-3">Receipt image</label>
                         
                         <!-- Camera Capture Button -->
                         <div class="d-grid gap-2 mb-3" id="camera-section">
-                            <button type="button" class="btn btn-success btn-lg" id="camera-btn">
-                                📷 Take Photo with Camera
+                            <button type="button" class="btn btn-primary btn-lg" id="camera-btn">
+                                Take a photo
                             </button>
                         </div>
                         
                         <!-- File Upload Button -->
                         <div class="d-grid gap-2">
                             <button type="button" class="btn btn-outline-primary btn-lg" id="upload-btn">
-                                🖼️ Upload Existing Photo
+                                Choose a receipt image
                             </button>
                         </div>
                         
                         <!-- Hidden file input (fallback for web) -->
                         <input type="file" class="d-none" id="file-input" name="receipt" accept="image/*">
                         
-                        <div class="form-text mt-2">
-                            Supported formats: JPG, PNG, GIF, BMP, WebP (max 16MB)
+                        <div class="form-text mt-2 text-center">
+                            JPG, PNG, GIF, BMP or WebP, up to 16 MB
                         </div>
                     </div>
                     
                     <div class="mb-3">
                         <div id="preview-container" style="display: none;">
-                            <label class="form-label">Preview:</label>
+                            <label class="form-label d-block">Preview</label>
                             <img id="image-preview" src="" alt="Preview" class="img-fluid rounded" style="max-height: 400px;">
                         </div>
                     </div>
                     
-                    <div class="d-grid gap-2" id="submit-buttons" style="display: none;">
+                    <div class="d-grid gap-2 d-none" id="submit-buttons">
                         <button type="submit" class="btn btn-primary btn-lg" id="process-btn">
                             <span class="spinner-border spinner-border-sm d-none" id="loading-spinner"></span>
-                            <span id="btn-text">🔍 Process Receipt</span>
+                            <span id="btn-text">Read receipt</span>
                         </button>
                         <button type="button" class="btn btn-outline-secondary" onclick="resetForm()">Choose Different Photo</button>
                         
@@ -97,8 +87,8 @@
         </div>
         
         <div class="mt-4">
-            <h5>Tips for best results:</h5>
-            <ul>
+            <h2 class="h6">Tips for best results</h2>
+            <ul class="text-muted small">
                 <li>Ensure the receipt is well-lit and in focus</li>
                 <li>Capture the entire receipt in the photo</li>
                 <li>Avoid shadows and glare</li>
@@ -108,8 +98,7 @@
     </div>
 </div>
 
-<script src="https://unpkg.com/@capacitor/core@6.0.0/dist/capacitor.js"></script>
-<script src="/static/camera-handler.js"></script>
+<script src="{{ url_for('static', filename='camera-handler.js') }}"></script>
 <script>
     let selectedFile = null;
     let cameraHandler = null;
@@ -133,7 +122,7 @@
         // Show/hide camera button based on platform
         // Always show on mobile, hide on desktop unless it's a native app
         if (!platformInfo.isMobile && !platformInfo.isNative) {
-            document.getElementById('camera-section').style.display = 'none';
+            document.getElementById('camera-section').classList.add('d-none');
         }
     });
     
@@ -181,8 +170,8 @@
         // Show preview
         document.getElementById('image-preview').src = dataUrl;
         document.getElementById('preview-container').style.display = 'block';
-        document.getElementById('submit-buttons').style.display = 'block';
-        document.getElementById('cancel-button').style.display = 'none';
+        document.getElementById('submit-buttons').classList.remove('d-none');
+        document.getElementById('cancel-button').classList.add('d-none');
     }
     
     // Detect device type and hide camera button on desktop
@@ -217,8 +206,8 @@
         reader.onload = function(e) {
             document.getElementById('image-preview').src = e.target.result;
             document.getElementById('preview-container').style.display = 'block';
-            document.getElementById('submit-buttons').style.display = 'block';
-            document.getElementById('cancel-button').style.display = 'none';
+            document.getElementById('submit-buttons').classList.remove('d-none');
+            document.getElementById('cancel-button').classList.add('d-none');
         };
         reader.readAsDataURL(file);
     });
@@ -226,8 +215,8 @@
     function resetForm() {
         document.getElementById('file-input').value = '';
         document.getElementById('preview-container').style.display = 'none';
-        document.getElementById('submit-buttons').style.display = 'none';
-        document.getElementById('cancel-button').style.display = 'block';
+        document.getElementById('submit-buttons').classList.add('d-none');
+        document.getElementById('cancel-button').classList.remove('d-none');
         selectedFile = null;
     }
     

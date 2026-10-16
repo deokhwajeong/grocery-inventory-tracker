@@ -5,24 +5,14 @@
 {% block content %}
 <div class="row">
     <div class="col-md-8 offset-md-2">
-        <h1 class="mb-4">⚙️ Settings</h1>
+        <h1 class="mb-4">Settings</h1>
         
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
         
         <form method="POST">
             <!-- Notification Settings -->
             <div class="card mb-4">
                 <div class="card-header">
-                    <h3>🔔 Notification Settings</h3>
+                    <h3>Notification Settings</h3>
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
@@ -60,37 +50,10 @@
                 </div>
             </div>
             
-            <!-- App Preferences -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h3>🎨 App Preferences</h3>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label">Default View</label>
-                        <select class="form-select" name="default_view">
-                            <option value="grid">Grid View</option>
-                            <option value="list" selected>List View</option>
-                            <option value="compact">Compact View</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label">Default Sort Order</label>
-                        <select class="form-select" name="default_sort">
-                            <option value="purchase_date">Purchase Date (Newest)</option>
-                            <option value="expiry_date">Expiry Date (Soonest)</option>
-                            <option value="name">Name (A-Z)</option>
-                            <option value="category">Category</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-            
             <!-- Data Management -->
             <div class="card mb-4">
                 <div class="card-header">
-                    <h3>💾 Data Management</h3>
+                    <h3>Data Management</h3>
                 </div>
                 <div class="card-body">
                     <div class="mb-3">
@@ -119,20 +82,20 @@
             <!-- About -->
             <div class="card mb-4">
                 <div class="card-header">
-                    <h3>ℹ️ About</h3>
+                    <h3>About</h3>
                 </div>
                 <div class="card-body">
                     <p><strong>Grocery Inventory Tracker</strong></p>
                     <p>Version 2.0.0</p>
                     <p class="text-muted">
                         A smart grocery management app with OCR scanning, expiry tracking,
-                        waste reduction analytics, and AI-powered shopping suggestions.
+                        purchase insights, and shopping list suggestions. Built as a HarvardX CS50 final project.
                     </p>
                     <p>
-                        <a href="https://github.com/yourusername/grocery-tracker" class="btn btn-sm btn-outline-secondary">
+                        <a href="https://github.com/deokhwajeong/grocery-inventory-tracker" class="btn btn-sm btn-outline-secondary">
                             📖 Documentation
                         </a>
-                        <a href="https://github.com/yourusername/grocery-tracker/issues" class="btn btn-sm btn-outline-secondary">
+                        <a href="https://github.com/deokhwajeong/grocery-inventory-tracker/issues" class="btn btn-sm btn-outline-secondary">
                             🐛 Report Issue
                         </a>
                     </p>

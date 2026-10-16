@@ -5,25 +5,15 @@
 {% block content %}
 <div class="row">
     <div class="col-md-12">
-        <h1 class="mb-4">🛒 Smart Shopping List</h1>
+        <h1 class="mb-1">Shopping list</h1>
         
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
         
-        <p class="lead">AI-powered suggestions based on your inventory patterns</p>
+        <p class="lead mb-4">Suggestions based on low stock, recent expiries, and repeat purchases. Your list is saved in this browser.</p>
         
         <!-- Low Stock Items -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>⚠️ Low Stock Items</h3>
+                <h3>Low Stock Items</h3>
                 <p class="mb-0">Items running low - consider restocking</p>
             </div>
             <div class="card-body">
@@ -39,8 +29,8 @@
                                 </small>
                             </div>
                             <div>
-                                <button class="btn btn-sm btn-primary" onclick="addToShoppingList('{{ item['name'] }}', '{{ item['category'] }}')">
-                                    ➕ Add to List
+                                <button class="btn btn-sm btn-primary" onclick='addToShoppingList({{ item["name"]|tojson }}, {{ item["category"]|tojson }})'>
+                                    Add to List
                                 </button>
                             </div>
                         </div>
@@ -57,7 +47,7 @@
         <!-- Recently Expired Items -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>🔄 Recently Expired - Consider Replacing</h3>
+                <h3>Recently Expired - Consider Replacing</h3>
                 <p class="mb-0">Items that expired in the last 7 days</p>
             </div>
             <div class="card-body">
@@ -73,8 +63,8 @@
                                 </small>
                             </div>
                             <div>
-                                <button class="btn btn-sm btn-primary" onclick="addToShoppingList('{{ item['name'] }}', '{{ item['category'] }}')">
-                                    ➕ Re-buy
+                                <button class="btn btn-sm btn-primary" onclick='addToShoppingList({{ item["name"]|tojson }}, {{ item["category"]|tojson }})'>
+                                    Re-buy
                                 </button>
                             </div>
                         </div>
@@ -91,7 +81,7 @@
         <!-- Frequently Purchased Items -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>⭐ Frequently Purchased</h3>
+                <h3>Frequently Purchased</h3>
                 <p class="mb-0">Your regular items - might need restocking</p>
             </div>
             <div class="card-body">
@@ -108,8 +98,8 @@
                                 </small>
                             </div>
                             <div>
-                                <button class="btn btn-sm btn-primary" onclick="addToShoppingList('{{ item['name'] }}', '{{ item['category'] }}')">
-                                    ➕ Add
+                                <button class="btn btn-sm btn-primary" onclick='addToShoppingList({{ item["name"]|tojson }}, {{ item["category"]|tojson }})'>
+                                    Add
                                 </button>
                             </div>
                         </div>
@@ -127,11 +117,11 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div>
-                    <h3 class="mb-0">📝 Your Shopping List</h3>
+                    <h3 class="mb-0">Your Shopping List</h3>
                 </div>
                 <div>
                     <button class="btn btn-sm btn-secondary" onclick="clearShoppingList()">Clear All</button>
-                    <button class="btn btn-sm btn-primary" onclick="shareShoppingList()">📤 Share</button>
+                    <button class="btn btn-sm btn-primary" onclick="shareShoppingList()">Share</button>
                 </div>
             </div>
             <div class="card-body">
@@ -144,7 +134,7 @@
         </div>
         
         <div class="text-center mt-4">
-            <a href="{{ url_for('index') }}" class="btn btn-secondary">← Back to Inventory</a>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">Back to inventory</a>
             <a href="{{ url_for('add') }}" class="btn btn-primary">➕ Add New Item</a>
         </div>
     </div>
@@ -228,7 +218,7 @@ function renderShoppingList() {
                     <small><span class="badge bg-secondary">${item.category}</span></small>
                 </div>
                 <button class="btn btn-sm btn-danger" onclick="removeFromShoppingList(${index})">
-                    ✕ Remove
+                    Remove
                 </button>
             </div>
         `).join('') +

@@ -5,78 +5,63 @@
 {% block content %}
 <div class="row">
     <div class="col-md-12">
-        <h1 class="mb-4">📊 Statistics & Insights</h1>
+        <h1 class="mb-1">Insights</h1>
         
-        <p class="lead">Track your grocery patterns and reduce food waste</p>
+        <p class="lead mb-4">Purchase patterns and expiry trends from your inventory.</p>
         
         <!-- Key Metrics -->
         <div class="row mb-4">
             <div class="col-md-3">
                 <div class="stat-card">
-                    <h5>💰 Items Saved</h5>
+                    <h5>Still fresh</h5>
                     <h2>{{ items_saved }}</h2>
-                    <small>Used before expiry</small>
+                    <small>Not expired or no date</small>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stat-card expiring">
-                    <h5>🗑️ Items Wasted</h5>
+                    <h5>Expired</h5>
                     <h2>{{ total_waste }}</h2>
-                    <small>Expired items</small>
+                    <small>Past expiry date</small>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stat-card">
-                    <h5>♻️ Waste Reduction</h5>
+                    <h5>Fresh rate</h5>
                     <h2>{{ "%.1f"|format(waste_reduction) }}%</h2>
-                    <small>Success rate</small>
+                    <small>Share of items not expired</small>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stat-card">
-                    <h5>⏰ Avg Shelf Life</h5>
+                    <h5>Avg shelf life</h5>
                     <h2>{{ "%.0f"|format(avg_shelf_life or 0) }}</h2>
                     <small>Days</small>
                 </div>
             </div>
         </div>
         
-        <!-- Waste Impact -->
+        <!-- Freshness -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>🌱 Environmental Impact</h3>
+                <h3>Freshness</h3>
             </div>
             <div class="card-body">
-                <div class="row">
-                    <div class="col-md-6">
-                        <h5>Food Waste Prevented</h5>
-                        <div class="progress mb-3" style="height: 30px;">
-                            <div class="progress-bar bg-success" role="progressbar" 
-                                 style="width: {{ waste_reduction }}%">
-                                {{ "%.1f"|format(waste_reduction) }}%
-                            </div>
-                        </div>
-                        <p class="text-muted">
-                            By using this app, you've prevented <strong>{{ items_saved }}</strong> items from going to waste!
-                            {% if items_saved > 10 %}
-                            That's approximately {{ "%.1f"|format(items_saved * 0.5) }} kg of food saved! 🎉
-                            {% endif %}
-                        </p>
-                    </div>
-                    <div class="col-md-6">
-                        <h5>Monthly Savings Estimate</h5>
-                        {% set monthly_savings = items_saved * 3.5 %}
-                        <h2 class="text-success">${{ "%.2f"|format(monthly_savings) }}</h2>
-                        <p class="text-muted">Based on average grocery prices</p>
+                <div class="progress mb-2" style="height: 28px;">
+                    <div class="progress-bar" role="progressbar" style="width: {{ waste_reduction }}%">
+                        {{ "%.1f"|format(waste_reduction) }}% fresh
                     </div>
                 </div>
+                <p class="text-muted mb-0">
+                    {{ items_saved }} of {{ items_saved + total_waste }} tracked items are still within their expiry date.
+                </p>
             </div>
         </div>
-        
+
         <!-- Category Distribution -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>📦 Category Distribution</h3>
+                <h3>Category distribution</h3>
             </div>
             <div class="card-body">
                 {% if category_stats %}
@@ -120,7 +105,7 @@
         <!-- Monthly Trends -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>📈 Purchase Trends (Last 6 Months)</h3>
+                <h3>Purchases in the last 6 months</h3>
             </div>
             <div class="card-body">
                 {% if monthly_trends %}
@@ -168,7 +153,7 @@
         <!-- Waste by Category -->
         <div class="card mb-4">
             <div class="card-header">
-                <h3>🗑️ Waste Analysis by Category</h3>
+                <h3>Expired items by category</h3>
             </div>
             <div class="card-body">
                 {% if waste_stats %}
@@ -190,7 +175,7 @@
                                     <td>{{ stat['wasted_quantity'] }}</td>
                                     <td>
                                         {% if stat['expired_count'] > 5 %}
-                                            <span class="badge bg-warning">⚠️ High waste - check purchase patterns</span>
+                                            <span class="badge bg-warning text-dark">High waste, check purchase patterns</span>
                                         {% elif stat['expired_count'] > 2 %}
                                             <span class="badge bg-info">Monitor this category</span>
                                         {% else %}
@@ -203,14 +188,14 @@
                         </table>
                     </div>
                 {% else %}
-                    <div class="alert alert-success">🎉 No wasted items! You're doing great!</div>
+                    <div class="alert alert-success">No expired items.</div>
                 {% endif %}
             </div>
         </div>
         
         <div class="text-center mt-4">
             <a href="{{ url_for('index') }}" class="btn btn-secondary">← Back to Inventory</a>
-            <a href="{{ url_for('shopping_list') }}" class="btn btn-primary">🛒 Smart Shopping List</a>
+            <a href="{{ url_for('shopping_list') }}" class="btn btn-primary">Shopping list</a>
         </div>
     </div>
 </div>

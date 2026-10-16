@@ -5,17 +5,13 @@
 {% block content %}
 <div class="row">
     <div class="col-md-12">
-        <h1 class="mb-4">📝 Review Scanned Items</h1>
-        
-        <div class="alert alert-info">
-            <strong>Review and edit the items below before adding to your inventory.</strong>
-            Uncheck items you don't want to add, and edit any incorrect information.
-        </div>
+        <h1 class="mb-1">Review scanned items</h1>
+        <p class="text-muted mb-4">Check the items read from your receipt. Fix names, set expiry dates, and untick anything you do not want to save.</p>
         
         <form method="POST" action="/ocr/review">
-            <div class="table-responsive">
-                <table class="table table-bordered">
-                    <thead class="table-primary">
+            <div class="table-responsive panel p-0">
+                <table class="table align-middle">
+                    <thead>
                         <tr>
                             <th width="50">
                                 <input type="checkbox" id="select-all" checked>
@@ -72,8 +68,8 @@
             </div>
             
             <div class="d-grid gap-2 mt-4">
-                <button type="submit" class="btn btn-primary btn-lg">✓ Add Selected Items</button>
-                <a href="/ocr" class="btn btn-secondary">Cancel & Scan Again</a>
+                <button type="submit" class="btn btn-primary btn-lg">Add selected items</button>
+                <a href="{{ url_for('ocr_upload') }}" class="btn btn-secondary">Cancel and scan again</a>
             </div>
         </form>
     </div>
