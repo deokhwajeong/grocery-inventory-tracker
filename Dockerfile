@@ -18,6 +18,7 @@ COPY . .
 # The SQLite database lives in a volume so data survives container rebuilds.
 # Tables are created automatically on startup.
 ENV DATABASE_PATH=/app/data/groceries.db \
+    RECEIPT_FOLDER=/app/data/receipts \
     FLASK_ENV=production
 RUN mkdir -p /app/data
 

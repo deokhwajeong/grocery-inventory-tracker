@@ -242,6 +242,7 @@
 
     // Answer the app's JSON endpoints locally so page scripts never hit a server.
     const realFetch = window.fetch ? window.fetch.bind(window) : null;
+    let scanCount = 0;
     window.fetch = function (input, init) {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
         const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
@@ -251,6 +252,15 @@
         if (m) {
             const it = findItem(+m[1]);
             return json(it ? { id: it.id, name: it.name, quantity: it.quantity, category: it.category, expiry_date: it.expiry_date } : { error: 'Item not found' });
+        }
+        if (/\/api\/ocr\/scan/.test(url)) {
+            // Answer with a precomputed sample receipt: the matching sample by file name, else the next one in turn.
+            const file = init && init.body && init.body.get ? init.body.get('receipt') : null;
+            const m2 = file && /sample-receipt-(\d+)/.exec(file.name || '');
+            let receipt = m2 ? SEED.receipts.find(r => r.id === +m2[1]) : null;
+            if (!receipt) receipt = SEED.receipts[(scanCount++) % SEED.receipts.length];
+            return new Promise(resolve => setTimeout(resolve, 600 + Math.round(receipt.seconds * 400)))
+                .then(() => json({ receipt_id: receipt.id, items: receipt.items, seconds: receipt.seconds }));
         }
         if (/^\/api\//.test(url)) return json({});
         return realFetch(input, init);
@@ -494,72 +504,105 @@
     }
 
     // ---------- receipt upload (ocr.html) ----------
+    // The page's own script reads the selected files one at a time through
+    // /api/ocr/scan; the fetch() stand-in above answers with the precomputed
+    // sample receipts, so single and batch scanning both work offline.
+    function loadSample(receipt) {
+        return fetch(receipt.image)
+            .then(r => r.blob())
+            .then(blob => new Promise(resolve => {
+                const file = new File([blob], `sample-receipt-${receipt.id}.png`, { type: 'image/png' });
+                const reader = new FileReader();
+                reader.onload = () => {
+                    if (typeof window.handlePhotoResult === 'function') window.handlePhotoResult({ dataUrl: reader.result, file });
+                    resolve();
+                };
+                reader.readAsDataURL(file);
+            }))
+            .catch(() => {});
+    }
+
     function initOcr() {
         const form = document.getElementById('upload-form');
         const note = document.createElement('div');
         note.className = 'alert alert-info';
-        note.innerHTML = '<strong>Demo:</strong> a sample receipt is already loaded below. Its OCR results were computed when the demo was built, so any photo you choose here shows the same sample results.';
+        note.innerHTML = '<strong>Demo:</strong> a sample receipt is loaded below. OCR results for the three sample receipts were computed when the demo was built; any photo you add here shows one of those results. '
+            + '<button type="button" class="btn btn-sm btn-outline-primary ms-1 mt-1" id="demo-batch">Load all 3 sample receipts</button>';
         form.closest('.card').before(note);
-
-        fetch(SEED.receipt.image)
-            .then(r => r.blob())
-            .then(blob => {
-                if (document.getElementById('file-input').files.length) return;
-                const file = new File([blob], 'sample-receipt.png', { type: 'image/png' });
-                const reader = new FileReader();
-                reader.onload = () => {
-                    if (typeof window.handlePhotoResult === 'function') {
-                        window.handlePhotoResult({ dataUrl: reader.result, file });
-                    }
-                };
-                reader.readAsDataURL(file);
-            })
-            .catch(() => {});
-
-        // The page's own submit handler runs first and animates the progress bar.
-        form.addEventListener('submit', event => {
-            if (event.defaultPrevented) return;
-            event.preventDefault();
-            setTimeout(() => {
-                const n = SEED.receipt.items.length;
-                redirect('ocr-review.html', 'info', `Found ${n} items. Please review and edit before saving.`);
-            }, 4300);
+        loadSample(SEED.receipts[0]);
+        document.getElementById('demo-batch').addEventListener('click', event => {
+            event.target.disabled = true;
+            const clear = document.getElementById('clear-btn');
+            if (clear) clear.click();
+            SEED.receipts.reduce((p, r) => p.then(() => loadSample(r)), Promise.resolve());
         });
+    }
+
+    function receiptState(id) {
+        state.receipts = state.receipts || {};
+        return state.receipts[id] || { status: 'pending', imported: 0 };
+    }
+    function setReceiptState(id, value) {
+        state.receipts = state.receipts || {};
+        state.receipts[id] = value;
     }
 
     // ---------- receipt review (ocr-review.html) ----------
     function initReview() {
-        const form = document.querySelector('form[action="ocr-review.html"]');
-        const card = document.createElement('div');
-        card.className = 'panel mb-3 demo-receipt';
-        card.innerHTML = `
-            <a href="${esc(SEED.receipt.image)}" target="_blank" rel="noopener"><img src="${esc(SEED.receipt.image)}" alt="Sample receipt used for this scan" width="${SEED.receipt.width}" height="${SEED.receipt.height}"></a>
-            <div class="small">
-                <div class="fw-semibold mb-1">Sample receipt</div>
-                <p class="text-muted mb-0">These rows are what ${SEED.receipt.engine === 'tesseract' ? 'the OCR pipeline (OpenCV preprocessing, Tesseract, receipt parser)' : 'the receipt parser'} read from this image when the demo was built.
-                Edit anything, untick rows you do not want, then add them to the inventory.</p>
-            </div>`;
-        form.before(card);
+        const form = document.getElementById('review-form');
+        const wanted = (new URLSearchParams(window.location.search).get('receipts') || '')
+            .split(',').map(n => parseInt(n, 10)).filter(n => SEED.receipts.some(r => r.id === n));
+        let ids = wanted.length ? wanted : SEED.receipts.map(r => r.id);
+        // Like the app, receipts that were already added or discarded drop out of a review
+        // (unless nothing is left, so the demo page never comes up empty).
+        const pendingIds = ids.filter(id => receiptState(id).status === 'pending');
+        if (pendingIds.length) ids = pendingIds;
+        // Show only the receipts that were scanned; hidden rows are never added.
+        form.querySelectorAll('.receipt-group').forEach(group => {
+            if (ids.includes(parseInt(group.dataset.receiptId, 10))) return;
+            group.hidden = true;
+            group.querySelectorAll('input, select').forEach(el => { el.disabled = true; if (el.type === 'checkbox') el.checked = false; });
+        });
+        const intro = form.previousElementSibling;
+        if (intro) intro.textContent = `Check the items read from ${ids.length > 1 ? `your ${ids.length} receipts` : 'your receipt'}. Fix names, set expiry dates, and untick anything you do not want to save.`;
+        const note = document.createElement('div');
+        note.className = 'alert alert-info small';
+        const engine = SEED.receipts.every(r => r.engine === 'tesseract')
+            ? 'the OCR pipeline (OpenCV preprocessing, Tesseract, receipt parser, product catalog)' : 'the receipt parser';
+        note.textContent = `Demo: these rows are what ${engine} read from the sample receipt images when the demo was built. Click a receipt image to see it full size.`;
+        form.before(note);
 
         form.addEventListener('submit', event => {
             event.preventDefault();
-            const selected = Array.from(form.querySelectorAll('input[name="selected"]:checked')).map(cb => cb.value);
+            if (event.submitter && event.submitter.value === 'discard') {
+                ids.forEach(id => setReceiptState(id, { status: 'discarded', imported: 0 }));
+                save(state);
+                redirect('ocr.html', 'info', 'Scan discarded. Nothing was added.');
+                return;
+            }
+            const selected = Array.from(form.querySelectorAll('input[name="selected"]:checked')).filter(cb => !cb.disabled);
             if (!selected.length) { showFlash('warning', 'No items selected'); return; }
             let added = 0;
             let merged = 0;
             const errors = [];
-            selected.forEach(idx => {
+            const perReceipt = {};
+            ids.forEach(id => { perReceipt[id] = 0; });
+            selected.forEach(cb => {
+                const idx = cb.value;
                 const get = n => (form.elements[`${n}_${idx}`] ? String(form.elements[`${n}_${idx}`].value).trim() : '');
                 const data = {
                     name: get('name'), quantity: get('quantity'), purchase_date: get('purchase_date'),
                     expiry_date: get('expiry_date'), category: get('category') || 'Other', notes: '',
                 };
                 if (!SEED.categories.includes(data.category)) data.category = 'Other';
-                const error = validate(data.name, data.quantity, data.purchase_date, '');
+                const error = validate(data.name, data.quantity, data.purchase_date, data.expiry_date);
                 if (error) { errors.push(`${data.name}: ${error}`); return; }
                 if (addOrMerge(data).merged) merged += 1;
                 added += 1;
+                const rid = parseInt(cb.closest('.receipt-group').dataset.receiptId, 10);
+                perReceipt[rid] = (perReceipt[rid] || 0) + 1;
             });
+            ids.forEach(id => setReceiptState(id, { status: 'imported', imported: perReceipt[id] || 0 }));
             save(state);
             const mergedNote = merged ? ` (${merged} combined with items already in stock)` : '';
             if (added) queueFlash('success', `Successfully added ${added} items${mergedNote}!`);
@@ -567,6 +610,62 @@
             redirect('index.html');
         });
     }
+
+    // ---------- receipt history (receipts.html) ----------
+    function initReceipts() {
+        const rows = Array.from(document.querySelectorAll('.receipts-table tbody tr'));
+        rows.forEach(row => {
+            const m = /sample-receipt-(\d+)/.exec(row.innerHTML);
+            const receipt = m ? SEED.receipts.find(r => r.id === +m[1]) : null;
+            if (!receipt) return;
+            const info = receiptState(receipt.id);
+            if (info.status === 'deleted') { row.remove(); return; }
+            const cells = row.querySelectorAll('td');
+            if (info.status === 'imported') {
+                cells[3].textContent = `${info.imported} of ${receipt.items} added`;
+                cells[4].innerHTML = '<span class="status status-good">Added</span>';
+            } else if (info.status === 'discarded') {
+                cells[4].innerHTML = '<span class="status status-none">Discarded</span>';
+            }
+            if (info.status !== 'pending') {
+                const review = cells[5].querySelector('a.btn');
+                if (review) review.remove();
+            }
+            const del = row.querySelector('form.delete-receipt-form');
+            del.addEventListener('submit', event => {
+                if (event.defaultPrevented) return;      // the page's confirm() was cancelled
+                event.preventDefault();
+                setReceiptState(receipt.id, { status: 'deleted', imported: 0 });
+                save(state);
+                redirect('receipts.html', 'success', 'Receipt deleted. Items already added to the inventory were kept.');
+            });
+        });
+    }
+
+    // ---------- accounts (login.html, register.html, sign out) ----------
+    function initAuth() {
+        const form = document.querySelector('form.auth-form');
+        const note = document.createElement('div');
+        note.className = 'alert alert-info small';
+        note.textContent = 'Demo: any username and password sign you in to the sample household. Nothing is sent anywhere. The real app stores salted password hashes and keeps each household’s data separate.';
+        form.before(note);
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            const name = (form.elements.username.value || 'demo').trim();
+            if (form.elements.confirm && form.elements.confirm.value !== form.elements.password.value) {
+                showFlash('error', 'The two passwords do not match.');
+                return;
+            }
+            redirect('index.html', 'success', page === 'register'
+                ? `Welcome, ${name}! Your household inventory is ready.` : `Signed in as ${name} (demo).`);
+        });
+    }
+    document.querySelectorAll('form.logout-form').forEach(form => {
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            redirect('login.html', 'info', 'You have been signed out.');
+        });
+    });
 
     // ---------- shopping list ----------
     function suggestionList(items, badge, label) {
@@ -786,6 +885,9 @@
         edit: initEdit,
         ocr: initOcr,
         'ocr-review': initReview,
+        receipts: initReceipts,
+        login: initAuth,
+        register: initAuth,
         'shopping-list': initShopping,
         statistics: initStatistics,
         settings: initSettings,

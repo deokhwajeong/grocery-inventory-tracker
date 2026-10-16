@@ -11,7 +11,22 @@
         <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
         
-        <form method="POST" action="/edit/{{ item['id'] }}" class="grocery-form">
+        {% if receipt %}
+        <div class="panel mb-3 d-flex gap-3 align-items-center receipt-source">
+            {% if receipt['image_filename'] %}
+            <a href="{{ url_for('receipt_image', receipt_id=receipt['id']) }}" target="_blank" rel="noopener">
+                <img src="{{ url_for('receipt_image', receipt_id=receipt['id']) }}" alt="Receipt this item came from" class="receipt-thumb">
+            </a>
+            {% endif %}
+            <div class="small">
+                <div class="fw-semibold">Added from a scanned receipt</div>
+                <div class="text-muted">{{ receipt['store'] or 'Receipt' }}{% if receipt['receipt_date'] %}, {{ receipt['receipt_date'] }}{% endif %}.
+                    <a href="{{ url_for('receipts') }}">Receipt history</a></div>
+            </div>
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('edit', id=item['id']) }}" class="grocery-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row">
                 <div class="col-md-6 mb-3">
@@ -53,7 +68,7 @@
             
             <div class="d-grid gap-2">
                 <button type="submit" class="btn btn-primary">Update Item</button>
-                <a href="/" class="btn btn-secondary">Cancel</a>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
     </div>

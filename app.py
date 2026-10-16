@@ -1,21 +1,33 @@
 """
 Grocery Inventory Tracker - Main Application
 A Flask-based web application for managing grocery inventory with OCR receipt scanning.
+
+Every inventory row, receipt, and API response belongs to a household account
+(see the auth routes below). Queries always filter on the signed-in account.
 """
-import sqlite3
-import os
+import csv
 import logging
-from flask import Flask, render_template, request, redirect, url_for, flash, session
-from flask_wtf.csrf import CSRFProtect, CSRFError
+import os
+import sqlite3
+import tempfile
 from datetime import datetime
+from functools import wraps
+from io import StringIO
+
+import pytesseract
+from flask import (Flask, abort, flash, g, make_response, redirect, render_template, request, send_file, session,
+                   url_for)
+from flask_wtf.csrf import CSRFError, CSRFProtect
 from PIL import Image, UnidentifiedImageError
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
-import pytesseract
+
 import barcode_catalog
-from inventory import add_or_merge
-from ocr_processor import process_receipt_image, is_tesseract_available
+import receipt_store
 from config import config
+from inventory import add_or_merge
+from ocr_processor import analyze_receipt_image, is_tesseract_available
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -44,20 +56,17 @@ logger = logging.getLogger(__name__)
 # Categories for grocery items
 CATEGORIES = app.config['CATEGORIES']
 
-# Create upload folder if it doesn't exist
+# Create upload folders if they don't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs(app.config['RECEIPT_FOLDER'], exist_ok=True)
 logger.info(f"Upload folder created/verified: {app.config['UPLOAD_FOLDER']}")
 
+# Endpoints reachable without signing in
+PUBLIC_ENDPOINTS = {'login', 'register', 'static'}
+
+
 def allowed_file(filename):
-    """
-    Check if uploaded file has an allowed extension.
-
-    Args:
-        filename (str): Name of the uploaded file
-
-    Returns:
-        bool: True if file extension is allowed, False otherwise
-    """
+    """True if the file name has an allowed image extension."""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
@@ -93,17 +102,16 @@ def handle_csrf_error(error):
 @app.errorhandler(RequestEntityTooLarge)
 def handle_too_large(error):
     limit_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+    if wants_json():
+        return {'error': f'That file is too large. The limit is {limit_mb} MB.'}, 413
     flash(f'That file is too large. The limit is {limit_mb} MB.', 'error')
     return redirect(url_for('ocr_upload'))
 
-# Database connection helper
-def get_db_connection():
-    """
-    Create and return a database connection.
 
-    Returns:
-        sqlite3.Connection: Database connection with Row factory
-    """
+# ---------------------------------------------------------------- database
+
+def get_db_connection():
+    """Create and return a database connection with Row factory."""
     try:
         conn = sqlite3.connect(app.config['DATABASE_PATH'])
         conn.row_factory = sqlite3.Row
@@ -112,16 +120,24 @@ def get_db_connection():
         logger.error(f"Database connection error: {e}")
         raise
 
-# Initialize database
+
+def migrate(conn):
+    """Bring databases created before accounts and receipt storage up to date."""
+    columns = {row['name'] for row in conn.execute('PRAGMA table_info(groceries)')}
+    if 'user_id' not in columns:
+        conn.execute('ALTER TABLE groceries ADD COLUMN user_id INTEGER REFERENCES users(id)')
+    if 'receipt_id' not in columns:
+        conn.execute('ALTER TABLE groceries ADD COLUMN receipt_id INTEGER REFERENCES receipts(id)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_groceries_user ON groceries(user_id)')
+
+
 def init_db():
-    """
-    Initialize the database using the schema file.
-    Creates tables and indexes if they don't exist.
-    """
+    """Create tables and indexes if they don't exist, then run migrations."""
     try:
         conn = get_db_connection()
         with open(app.config['SCHEMA_PATH'], 'r') as f:
             conn.executescript(f.read())
+        migrate(conn)
         conn.commit()
         conn.close()
         logger.info("Database initialized successfully")
@@ -129,28 +145,152 @@ def init_db():
         logger.error(f"Database initialization error: {e}")
         raise
 
+
 # Create tables on startup so `flask run` and gunicorn work from a clean
 # clone, not only `python app.py`.
 init_db()
 
 
+# ---------------------------------------------------------------- accounts
+
+def current_user_id():
+    return g.user['id'] if g.get('user') else None
+
+
+def fetch_user(user_id):
+    conn = get_db_connection()
+    try:
+        return conn.execute('SELECT id, username FROM users WHERE id = ?', (user_id,)).fetchone()
+    finally:
+        conn.close()
+
+
+@app.before_request
+def load_user():
+    """Attach the signed-in account to g and send everyone else to the login page."""
+    g.user = None
+    user_id = session.get('user_id')
+    if user_id is not None:
+        try:
+            g.user = fetch_user(user_id)
+        except sqlite3.Error as e:
+            logger.error(f"Could not load account {user_id}: {e}")
+            if wants_json():
+                return {'error': 'Internal server error'}, 500
+            return render_template('error.html', message='The database is unavailable. Please try again shortly.'), 500
+        if g.user is None:
+            session.clear()
+    if g.user is None and request.endpoint not in PUBLIC_ENDPOINTS:
+        if wants_json():
+            return {'error': 'Sign in required'}, 401
+        return redirect(url_for('login', next=request.full_path if request.method == 'GET' else None))
+
+
+@app.context_processor
+def inject_user():
+    return {'current_user': g.get('user')}
+
+
+def safe_next(target):
+    """Only follow redirects to paths on this site."""
+    if target and target.startswith('/') and not target.startswith('//'):
+        return target
+    return url_for('index')
+
+
+def sign_in(user_id):
+    session.clear()  # new session on sign-in (avoids session fixation)
+    session['user_id'] = user_id
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Create a household account. The first account also claims items saved before accounts existed."""
+    if g.user:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm', '')
+        error = None
+        if not (3 <= len(username) <= 40) or not username.replace('_', '').replace('-', '').replace('.', '').isalnum():
+            error = 'Choose a username of 3 to 40 letters, digits, dots, dashes or underscores.'
+        elif len(password) < app.config['MIN_PASSWORD_LENGTH']:
+            error = f"Use a password of at least {app.config['MIN_PASSWORD_LENGTH']} characters."
+        elif password != confirm:
+            error = 'The two passwords do not match.'
+        if error:
+            return render_template('register.html', error=error, username=username), 400
+
+        conn = get_db_connection()
+        try:
+            first_account = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0] == 0
+            cur = conn.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)',
+                               (username, generate_password_hash(password)))
+            user_id = cur.lastrowid
+            if first_account:
+                claimed = conn.execute('UPDATE groceries SET user_id = ? WHERE user_id IS NULL', (user_id,)).rowcount
+                if claimed:
+                    logger.info(f"First account claimed {claimed} existing items")
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.close()
+            return render_template('register.html', error='That username is taken.', username=username), 400
+        conn.close()
+        sign_in(user_id)
+        logger.info(f"Account created: {username}")
+        flash(f'Welcome, {username}! Your household inventory is ready.', 'success')
+        return redirect(url_for('index'))
+    return render_template('register.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if g.user:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        conn = get_db_connection()
+        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        conn.close()
+        if user is None or not check_password_hash(user['password_hash'], password):
+            logger.warning(f"Failed sign-in for '{username}'")
+            return render_template('login.html', error='Wrong username or password.', username=username), 401
+        sign_in(user['id'])
+        return redirect(safe_next(request.form.get('next')))
+    return render_template('login.html', next=request.args.get('next', ''))
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    flash('You have been signed out.', 'info')
+    return redirect(url_for('login'))
+
+
+def login_required(view):
+    """Explicit marker for views; the before_request hook already enforces sign-in."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.user is None:  # pragma: no cover - load_user() redirects first
+            return redirect(url_for('login'))
+        return view(*args, **kwargs)
+    return wrapped
+
+
+# ---------------------------------------------------------------- inventory
+
 def validate_grocery_item(name, quantity, purchase_date):
     """
     Validate grocery item input data.
 
-    Args:
-        name (str): Item name
-        quantity (str): Item quantity
-        purchase_date (str): Purchase date in YYYY-MM-DD format
-
     Returns:
         tuple: (is_valid, error_message, validated_quantity)
     """
-    # Check required fields
     if not name or not quantity or not purchase_date:
         return False, 'Name, quantity, and purchase date are required', None
 
-    # Validate quantity
     try:
         qty = int(quantity)
         if qty <= 0:
@@ -160,13 +300,11 @@ def validate_grocery_item(name, quantity, purchase_date):
     except ValueError:
         return False, 'Quantity must be a valid number', None
 
-    # Validate purchase date format
     try:
         datetime.strptime(purchase_date, '%Y-%m-%d')
     except ValueError:
         return False, 'Invalid date format. Use YYYY-MM-DD', None
 
-    # Validate name length
     if len(name) > 100:
         return False, 'Item name is too long (max 100 characters)', None
     if len(name) < 2:
@@ -175,33 +313,31 @@ def validate_grocery_item(name, quantity, purchase_date):
     return True, None, qty
 
 
+def get_item(conn, item_id):
+    return conn.execute('SELECT * FROM groceries WHERE id = ? AND user_id = ?', (item_id, current_user_id())).fetchone()
+
+
 @app.route('/')
+@login_required
 def index():
-    """
-    Display the grocery inventory dashboard with search, filter, and sort capabilities.
-    Shows statistics and expiry status for all items.
-    """
+    """Inventory dashboard with search, filter, sort, and expiry status."""
+    uid = current_user_id()
     try:
-        # Get filter parameters
         search = request.args.get('search', '').strip()
         category = request.args.get('category', '')
         sort_by = request.args.get('sort', 'purchase_date')
 
         conn = get_db_connection()
 
-        # Build query with parameterized statements for security
-        query = 'SELECT * FROM groceries WHERE 1=1'
-        params = []
-
+        query = 'SELECT * FROM groceries WHERE user_id = ?'
+        params = [uid]
         if search:
             query += ' AND name LIKE ?'
             params.append(f'%{search}%')
-
         if category:
             query += ' AND category = ?'
             params.append(category)
 
-        # Add sorting with whitelist validation
         # Soonest expiry and A-Z names first; newest purchases and largest
         # quantities first. Items without an expiry date sort last.
         valid_sorts = {
@@ -212,42 +348,32 @@ def index():
             'category': 'category ASC, name COLLATE NOCASE ASC',
         }
         query += f" ORDER BY {valid_sorts.get(sort_by, valid_sorts['purchase_date'])}"
-
         groceries = conn.execute(query, params).fetchall()
 
-        # Get statistics
-        total_items = conn.execute('SELECT COUNT(*) FROM groceries').fetchone()[0]
+        total_items = conn.execute('SELECT COUNT(*) FROM groceries WHERE user_id = ?', (uid,)).fetchone()[0]
 
-        # Expired items are counted separately instead of as "expiring soon"
         warning_days = int(session.get('expiry_warning_days', app.config['EXPIRY_WARNING_DAYS']))
         warning_window = f"+{warning_days} days"
         expiring_soon = conn.execute(
-            "SELECT COUNT(*) FROM groceries WHERE expiry_date >= date('now', 'localtime') "
+            "SELECT COUNT(*) FROM groceries WHERE user_id = ? AND expiry_date >= date('now', 'localtime') "
             "AND expiry_date <= date('now', 'localtime', ?)",
-            (warning_window,)
+            (uid, warning_window)
         ).fetchone()[0]
-
         expired_count = conn.execute(
-            "SELECT COUNT(*) FROM groceries WHERE expiry_date < date('now', 'localtime')"
+            "SELECT COUNT(*) FROM groceries WHERE user_id = ? AND expiry_date < date('now', 'localtime')", (uid,)
         ).fetchone()[0]
-
-        # Items to use first: expired or expiring within the warning window
         use_soon = conn.execute(
-            "SELECT * FROM groceries WHERE expiry_date IS NOT NULL "
+            "SELECT * FROM groceries WHERE user_id = ? AND expiry_date IS NOT NULL "
             "AND expiry_date <= date('now', 'localtime', ?) ORDER BY expiry_date, name",
-            (warning_window,)
+            (uid, warning_window)
         ).fetchall()
-
         categories_count = conn.execute(
-            'SELECT category, COUNT(*) as count FROM groceries GROUP BY category'
+            'SELECT category, COUNT(*) as count FROM groceries WHERE user_id = ? GROUP BY category', (uid,)
         ).fetchall()
-
         conn.close()
 
-        # Calculate days until expiry for each item
         today = datetime.now().date()
         items_with_expiry = []
-
         for item in groceries:
             item_dict = dict(item)
             if item['expiry_date']:
@@ -255,8 +381,6 @@ def index():
                     expiry = datetime.strptime(item['expiry_date'], '%Y-%m-%d').date()
                     days_left = (expiry - today).days
                     item_dict['days_until_expiry'] = days_left
-
-                    # Determine expiry status
                     if days_left < 0:
                         item_dict['expiry_status'] = 'expired'
                     elif days_left <= warning_days:
@@ -283,41 +407,49 @@ def index():
             use_soon_items.append(item_dict)
 
         logger.info(f"Dashboard loaded: {total_items} items, {expiring_soon} expiring soon")
-
         return render_template('index.html',
-                             groceries=items_with_expiry,
-                             categories=CATEGORIES,
-                             total_items=total_items,
-                             expiring_soon=expiring_soon,
-                             expired_count=expired_count,
-                             use_soon=use_soon_items,
-                             warning_days=warning_days,
-                             categories_count=categories_count,
-                             current_search=search,
-                             current_category=category,
-                             current_sort=sort_by)
+                               groceries=items_with_expiry,
+                               categories=CATEGORIES,
+                               total_items=total_items,
+                               expiring_soon=expiring_soon,
+                               expired_count=expired_count,
+                               use_soon=use_soon_items,
+                               warning_days=warning_days,
+                               categories_count=categories_count,
+                               current_search=search,
+                               current_category=category,
+                               current_sort=sort_by)
 
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         flash('An error occurred while loading the dashboard', 'error')
         return render_template('index.html',
-                             groceries=[],
-                             categories=CATEGORIES,
-                             total_items=0,
-                             expiring_soon=0,
-                             expired_count=0,
-                             use_soon=[],
-                             warning_days=app.config['EXPIRY_WARNING_DAYS'],
-                             categories_count=[])
+                               groceries=[],
+                               categories=CATEGORIES,
+                               total_items=0,
+                               expiring_soon=0,
+                               expired_count=0,
+                               use_soon=[],
+                               warning_days=app.config['EXPIRY_WARNING_DAYS'],
+                               categories_count=[])
+
+
+def check_expiry(purchase_date, expiry_date):
+    """Error message for an invalid expiry date, or None."""
+    if not expiry_date:
+        return None
+    try:
+        if datetime.strptime(expiry_date, '%Y-%m-%d') < datetime.strptime(purchase_date, '%Y-%m-%d'):
+            return 'Expiry date cannot be before purchase date'
+    except ValueError:
+        return 'Invalid expiry date format'
+    return None
 
 
 @app.route('/add', methods=['GET', 'POST'])
+@login_required
 def add():
-    """
-    Add a new grocery item to the inventory.
-    GET: Display the add item form
-    POST: Process form submission and insert into database
-    """
+    """Add a new grocery item (or merge it into matching stock)."""
     if request.method == 'POST':
         try:
             name = request.form.get('name', '').strip()
@@ -327,36 +459,22 @@ def add():
             category = request.form.get('category', 'Other')
             notes = request.form.get('notes', '').strip()
 
-            # Validate input
             is_valid, error_msg, validated_qty = validate_grocery_item(name, quantity, purchase_date)
             if not is_valid:
                 logger.warning(f"Validation failed for add: {error_msg}")
                 return render_template('add.html', error=error_msg, categories=CATEGORIES)
-
-            # Validate expiry date if provided
-            if expiry_date:
-                try:
-                    expiry_dt = datetime.strptime(expiry_date, '%Y-%m-%d')
-                    purchase_dt = datetime.strptime(purchase_date, '%Y-%m-%d')
-                    if expiry_dt < purchase_dt:
-                        return render_template('add.html',
-                                             error='Expiry date cannot be before purchase date',
-                                             categories=CATEGORIES)
-                except ValueError:
-                    return render_template('add.html',
-                                         error='Invalid expiry date format',
-                                         categories=CATEGORIES)
-
-            # Validate category
+            error_msg = check_expiry(purchase_date, expiry_date)
+            if error_msg:
+                return render_template('add.html', error=error_msg, categories=CATEGORIES)
             if category not in CATEGORIES:
                 category = 'Other'
 
-            # Insert, or merge into a matching item already in stock
             conn = get_db_connection()
             result = add_or_merge(
                 conn, name, validated_qty, purchase_date, expiry_date, category, notes,
                 window_days=app.config['MERGE_EXPIRY_WINDOW_DAYS'],
                 merge=not request.form.get('keep_separate'),
+                user_id=current_user_id(),
             )
             conn.commit()
             conn.close()
@@ -384,15 +502,18 @@ def add():
 
 
 @app.route('/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
 def edit(id):
-    """
-    Edit an existing grocery item.
-
-    Args:
-        id (int): Database ID of the item to edit
-    """
+    """Edit an existing grocery item of the signed-in account."""
     try:
         conn = get_db_connection()
+        item = get_item(conn, id)
+        if item is None:
+            conn.close()
+            logger.warning(f"Attempted to edit missing item {id}")
+            flash('Item not found', 'error')
+            return redirect(url_for('index'))
+        receipt = receipt_store.get(conn, current_user_id(), item['receipt_id']) if item['receipt_id'] else None
 
         if request.method == 'POST':
             name = request.form.get('name', '').strip()
@@ -402,55 +523,29 @@ def edit(id):
             category = request.form.get('category', 'Other')
             notes = request.form.get('notes', '').strip()
 
-            # Validate input
             is_valid, error_msg, validated_qty = validate_grocery_item(name, quantity, purchase_date)
-            if not is_valid:
+            if is_valid:
+                error_msg = check_expiry(purchase_date, expiry_date)
+            if error_msg:
                 logger.warning(f"Validation failed for edit item {id}: {error_msg}")
-                item = conn.execute('SELECT * FROM groceries WHERE id = ?', (id,)).fetchone()
-                return render_template('edit.html', item=item, error=error_msg, categories=CATEGORIES)
-
-            # Validate expiry date if provided
-            if expiry_date:
-                try:
-                    expiry_dt = datetime.strptime(expiry_date, '%Y-%m-%d')
-                    purchase_dt = datetime.strptime(purchase_date, '%Y-%m-%d')
-                    if expiry_dt < purchase_dt:
-                        item = conn.execute('SELECT * FROM groceries WHERE id = ?', (id,)).fetchone()
-                        return render_template('edit.html', item=item,
-                                             error='Expiry date cannot be before purchase date',
-                                             categories=CATEGORIES)
-                except ValueError:
-                    item = conn.execute('SELECT * FROM groceries WHERE id = ?', (id,)).fetchone()
-                    return render_template('edit.html', item=item,
-                                         error='Invalid expiry date format',
-                                         categories=CATEGORIES)
-
-            # Validate category
+                conn.close()
+                return render_template('edit.html', item=item, receipt=receipt, error=error_msg, categories=CATEGORIES)
             if category not in CATEGORIES:
                 category = 'Other'
 
-            # Update database
             conn.execute(
-                'UPDATE groceries SET name = ?, quantity = ?, purchase_date = ?, expiry_date = ?, category = ?, notes = ? WHERE id = ?',
-                (name, validated_qty, purchase_date, expiry_date if expiry_date else None, category, notes, id)
+                'UPDATE groceries SET name = ?, quantity = ?, purchase_date = ?, expiry_date = ?, category = ?, notes = ? '
+                'WHERE id = ? AND user_id = ?',
+                (name, validated_qty, purchase_date, expiry_date or None, category, notes, id, current_user_id())
             )
             conn.commit()
             conn.close()
-
             logger.info(f"Item {id} updated: {name}")
             flash('Item updated successfully!', 'success')
             return redirect(url_for('index'))
 
-        # GET request - fetch item
-        item = conn.execute('SELECT * FROM groceries WHERE id = ?', (id,)).fetchone()
         conn.close()
-
-        if item is None:
-            logger.warning(f"Attempted to edit non-existent item {id}")
-            flash('Item not found', 'error')
-            return redirect(url_for('index'))
-
-        return render_template('edit.html', item=item, categories=CATEGORIES)
+        return render_template('edit.html', item=item, receipt=receipt, categories=CATEGORIES)
 
     except sqlite3.Error as e:
         logger.error(f"Database error while editing item {id}: {e}")
@@ -464,29 +559,20 @@ def edit(id):
 
 
 @app.route('/delete/<int:id>', methods=['POST'])
+@login_required
 def delete(id):
-    """
-    Delete a grocery item from the inventory.
-
-    Args:
-        id (int): Database ID of the item to delete
-    """
+    """Delete a grocery item."""
     try:
         conn = get_db_connection()
-
-        # Check if item exists
-        item = conn.execute('SELECT name FROM groceries WHERE id = ?', (id,)).fetchone()
+        item = get_item(conn, id)
         if item is None:
-            logger.warning(f"Attempted to delete non-existent item {id}")
+            logger.warning(f"Attempted to delete missing item {id}")
             flash('Item not found', 'error')
             conn.close()
             return redirect(url_for('index'))
-
-        # Delete the item
-        conn.execute('DELETE FROM groceries WHERE id = ?', (id,))
+        conn.execute('DELETE FROM groceries WHERE id = ? AND user_id = ?', (id, current_user_id()))
         conn.commit()
         conn.close()
-
         logger.info(f"Item {id} deleted: {item['name']}")
         flash('Item deleted successfully!', 'success')
 
@@ -494,25 +580,16 @@ def delete(id):
         logger.error(f"Database error while deleting item {id}: {e}")
         flash('Database error occurred. Please try again.', 'error')
 
-    except Exception as e:
-        logger.error(f"Unexpected error while deleting item {id}: {e}")
-        flash('An unexpected error occurred. Please try again.', 'error')
-
     return redirect(url_for('index'))
 
 
 @app.route('/use/<int:id>', methods=['POST'])
+@login_required
 def mark_used(id):
-    """
-    Mark one unit of an item as used. The quantity goes down by one and the
-    item is removed once none are left.
-
-    Args:
-        id (int): Database ID of the item that was used
-    """
+    """Mark one unit as used: the quantity goes down by one, and the item is removed at zero."""
     try:
         conn = get_db_connection()
-        item = conn.execute('SELECT name, quantity FROM groceries WHERE id = ?', (id,)).fetchone()
+        item = get_item(conn, id)
         if item is None:
             conn.close()
             flash('Item not found', 'error')
@@ -526,7 +603,6 @@ def mark_used(id):
             message = f"Used the last {item['name']}. Removed it from the inventory."
         conn.commit()
         conn.close()
-
         logger.info(f"Item {id} used: {item['name']}")
         flash(message, 'success')
 
@@ -537,213 +613,299 @@ def mark_used(id):
     return redirect(url_for('index'))
 
 
+# ---------------------------------------------------------------- receipts
+
+class UploadError(Exception):
+    """A receipt upload that cannot be processed, with a message for the user."""
+
+
+def scan_receipt(file_storage):
+    """
+    Validate, OCR, and record one uploaded receipt.
+
+    Returns (receipt_id or None, items found, seconds). Raises UploadError with a
+    user-facing message, or TesseractNotFoundError.
+    """
+    if not file_storage or not file_storage.filename:
+        raise UploadError('No file selected')
+    if not allowed_file(file_storage.filename):
+        raise UploadError('Invalid file type. Please upload an image file.')
+    if not is_image_upload(file_storage):
+        raise UploadError('That file is not a readable image. Please upload a PNG, JPEG, or other photo.')
+
+    original = secure_filename(file_storage.filename) or 'receipt'
+    suffix = '.' + original.rsplit('.', 1)[-1].lower()
+    fd, temp_path = tempfile.mkstemp(suffix=suffix, dir=app.config['UPLOAD_FOLDER'])
+    os.close(fd)
+    try:
+        file_storage.save(temp_path)
+        logger.info(f"Receipt uploaded: {original}")
+        result = analyze_receipt_image(temp_path, app.config['OCR_LANGUAGES'])
+        items = result.get('items', [])
+        if not items:
+            return None, 0, result.get('ocr_seconds')
+
+        image_name = None
+        if app.config['STORE_RECEIPT_IMAGES']:
+            try:
+                image_name = receipt_store.save_image(temp_path, app.config['RECEIPT_FOLDER'],
+                                                      app.config['RECEIPT_MAX_DIMENSION'])
+            except (OSError, ValueError) as e:
+                logger.warning(f"Could not store receipt image: {e}")
+        conn = get_db_connection()
+        receipt_id = receipt_store.create(conn, current_user_id(), result, original, image_name)
+        receipt_store.prune_images(conn, app.config['RECEIPT_FOLDER'], current_user_id(), app.config['RECEIPT_KEEP'])
+        conn.commit()
+        conn.close()
+        logger.info(f"OCR processed: {len(items)} items found (receipt {receipt_id})")
+        return receipt_id, len(items), result.get('ocr_seconds')
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def review_url(receipt_ids):
+    return url_for('ocr_review', receipts=','.join(str(i) for i in receipt_ids))
+
+
 @app.route('/ocr', methods=['GET', 'POST'])
+@login_required
 def ocr_upload():
     """
-    Upload and process receipt image using OCR.
-    Extracts grocery items and stores them in session for review.
+    Upload one or more receipt images (up to BATCH_MAX_FILES). Each is read
+    in turn and the results open together on the review page. The page's
+    script uses /api/ocr/scan instead to show progress per receipt.
     """
     if request.method == 'POST':
-        try:
-            # Check if file is present
-            if 'receipt' not in request.files:
-                flash('No file uploaded', 'error')
-                return redirect(request.url)
-
-            file = request.files['receipt']
-
-            # Check if file is selected
-            if file.filename == '':
-                flash('No file selected', 'error')
-                return redirect(request.url)
-
-            if not is_tesseract_available():
-                flash('Receipt scanning needs the Tesseract OCR engine, which is not '
-                      'installed on this server. You can still add items manually.', 'error')
-                return redirect(request.url)
-
-            if file and allowed_file(file.filename) and not is_image_upload(file):
-                flash('That file is not a readable image. Please upload a PNG, JPEG, or other photo.', 'error')
-                return redirect(request.url)
-
-            if file and allowed_file(file.filename):
-                # Save file with secure filename
-                filename = secure_filename(file.filename)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filename = f"{timestamp}_{filename}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-
-                try:
-                    file.save(filepath)
-                    logger.info(f"Receipt uploaded: {filename}")
-
-                    # Process with OCR
-                    items = process_receipt_image(filepath, app.config['OCR_LANGUAGES'])
-
-                    if items:
-                        # Store items in session for review
-                        session['ocr_items'] = items
-                        logger.info(f"OCR processed: {len(items)} items found")
-                        flash(f'Found {len(items)} items. Please review and edit before saving.', 'info')
-                        return redirect(url_for('ocr_review'))
-                    else:
-                        logger.warning("No items found in receipt")
-                        flash('No items found in receipt. Please try again or add manually.', 'warning')
-                        return render_template('ocr.html', ocr_available=True)
-
-                except pytesseract.TesseractNotFoundError:
-                    flash('Tesseract OCR is not installed on this server.', 'error')
-                    return redirect(request.url)
-
-                except Exception as e:
-                    logger.error(f"Error processing receipt: {e}")
-                    flash('Could not read that receipt. Please try a clearer photo or add items manually.', 'error')
-                    return redirect(request.url)
-
-                finally:
-                    # Clean up uploaded file
-                    if os.path.exists(filepath):
-                        try:
-                            os.remove(filepath)
-                            logger.debug(f"Cleaned up file: {filename}")
-                        except OSError as e:
-                            logger.warning(f"Failed to delete uploaded file {filename}: {e}")
-            else:
-                flash('Invalid file type. Please upload an image file.', 'error')
-                return redirect(request.url)
-
-        except RequestEntityTooLarge:
-            raise  # handled by handle_too_large()
-
-        except Exception as e:
-            logger.error(f"Unexpected error in OCR upload: {e}")
-            flash('An unexpected error occurred. Please try again.', 'error')
+        files = [f for f in request.files.getlist('receipt') if f and f.filename]
+        if not files:
+            flash('No file selected' if 'receipt' in request.files else 'No file uploaded', 'error')
+            return redirect(request.url)
+        if not is_tesseract_available():
+            flash('Receipt scanning needs the Tesseract OCR engine, which is not '
+                  'installed on this server. You can still add items manually.', 'error')
+            return redirect(request.url)
+        limit = app.config['BATCH_MAX_FILES']
+        if len(files) > limit:
+            flash(f'Please upload at most {limit} receipts at a time.', 'error')
             return redirect(request.url)
 
-    return render_template('ocr.html', ocr_available=is_tesseract_available())
+        receipt_ids, problems, empty = [], [], 0
+        for file in files:
+            try:
+                receipt_id, count, _ = scan_receipt(file)
+                if receipt_id:
+                    receipt_ids.append(receipt_id)
+                else:
+                    empty += 1
+            except UploadError as e:
+                problems.append(str(e))
+            except pytesseract.TesseractNotFoundError:
+                flash('Tesseract OCR is not installed on this server.', 'error')
+                return redirect(request.url)
+            except Exception as e:
+                logger.error(f"Error processing receipt: {e}")
+                problems.append('Could not read that receipt. Please try a clearer photo or add items manually.')
+
+        for message in dict.fromkeys(problems):
+            flash(message, 'error')
+        if receipt_ids:
+            total = sum(len(r['items']) for r in _pending(receipt_ids))
+            note = f' from {len(receipt_ids)} receipts' if len(receipt_ids) > 1 else ''
+            flash(f'Found {total} items{note}. Please review and edit before saving.', 'info')
+            return redirect(review_url(receipt_ids))
+        if empty:
+            logger.warning("No items found in receipt")
+            flash('No items found in receipt. Please try again or add manually.', 'warning')
+            return render_template('ocr.html', ocr_available=True, batch_limit=limit)
+        return redirect(request.url)
+
+    return render_template('ocr.html', ocr_available=is_tesseract_available(), batch_limit=app.config['BATCH_MAX_FILES'])
+
+
+@app.route('/api/ocr/scan', methods=['POST'])
+@login_required
+def api_scan_receipt():
+    """Read one receipt image. Used by the upload page to process a batch one file at a time."""
+    if not is_tesseract_available():
+        return {'error': 'Tesseract OCR is not installed on this server.'}, 503
+    try:
+        receipt_id, count, seconds = scan_receipt(request.files.get('receipt'))
+    except RequestEntityTooLarge:
+        raise  # handled by handle_too_large()
+    except UploadError as e:
+        return {'error': str(e)}, 400
+    except Exception as e:
+        logger.error(f"Error processing receipt: {e}")
+        return {'error': 'Could not read that receipt.'}, 500
+    if not receipt_id:
+        return {'receipt_id': None, 'items': 0, 'message': 'No items found on this receipt.'}
+    return {'receipt_id': receipt_id, 'items': count, 'seconds': round(seconds or 0, 2),
+            'review_url': review_url([receipt_id])}
+
+
+def _parse_ids(raw):
+    ids = []
+    for part in (raw or '').split(','):
+        if part.strip().isdigit():
+            ids.append(int(part))
+    return list(dict.fromkeys(ids))[:50]
+
+
+def _pending(receipt_ids):
+    conn = get_db_connection()
+    receipts = receipt_store.pending(conn, current_user_id(), receipt_ids)
+    conn.close()
+    return receipts
 
 
 @app.route('/ocr/review', methods=['GET', 'POST'])
+@login_required
 def ocr_review():
-    """
-    Review and edit OCR-extracted items before adding to inventory.
-    Allows users to select which items to import and modify their details.
-    """
-    if 'ocr_items' not in session:
-        logger.warning("OCR review accessed without items in session")
+    """Review items read from one or more receipts and choose which to add."""
+    receipt_ids = _parse_ids(request.values.get('receipts'))
+    receipts = _pending(receipt_ids)
+    if not receipts:
+        logger.warning("OCR review opened without pending receipts")
         flash('No OCR items to review', 'warning')
         return redirect(url_for('ocr_upload'))
 
+    # One flat list of rows; each row remembers the receipt it came from.
+    rows = [(r, item) for r in receipts for item in r['items']]
+
     if request.method == 'POST':
-        try:
-            # Get selected items
-            selected_indices = request.form.getlist('selected')
-            items = session.get('ocr_items', [])
-
-            if not selected_indices:
-                flash('No items selected', 'warning')
-                return redirect(url_for('ocr_review'))
-
+        if request.form.get('action') == 'discard':
             conn = get_db_connection()
-            added_count = 0
-            merged_count = 0
-            errors = []
+            for r in receipts:
+                receipt_store.mark(conn, current_user_id(), r['id'], 'discarded')
+            conn.commit()
+            conn.close()
+            flash('Scan discarded. Nothing was added.', 'info')
+            return redirect(url_for('ocr_upload'))
 
+        selected_indices = request.form.getlist('selected')
+        if not selected_indices:
+            flash('No items selected', 'warning')
+            return redirect(review_url(receipt_ids))
+        try:
+            conn = get_db_connection()
+            added_count = merged_count = 0
+            per_receipt = {r['id']: 0 for r in receipts}
+            errors = []
             for idx in selected_indices:
                 try:
                     i = int(idx)
-                    if i >= len(items):
+                    if not 0 <= i < len(rows):
                         continue
-
-                    # Get edited values
-                    name = request.form.get(f'name_{i}', items[i]['name']).strip()
-                    quantity = request.form.get(f'quantity_{i}', str(items[i]['quantity'])).strip()
-                    purchase_date = request.form.get(f'purchase_date_{i}', items[i]['purchase_date']).strip()
+                    receipt, item = rows[i]
+                    name = request.form.get(f'name_{i}', item['name']).strip()
+                    quantity = request.form.get(f'quantity_{i}', str(item['quantity'])).strip()
+                    purchase_date = request.form.get(f'purchase_date_{i}', item.get('purchase_date', '')).strip()
                     expiry_date = request.form.get(f'expiry_date_{i}', '').strip()
                     category = request.form.get(f'category_{i}', 'Other')
 
-                    # Validate item
                     is_valid, error_msg, validated_qty = validate_grocery_item(name, quantity, purchase_date)
-                    if not is_valid:
+                    if is_valid:
+                        error_msg = check_expiry(purchase_date, expiry_date)
+                    if error_msg:
                         errors.append(f"{name}: {error_msg}")
                         continue
-
-                    # Validate category
                     if category not in CATEGORIES:
                         category = 'Other'
-
-                    # Insert, or merge into a matching item already in stock
                     result = add_or_merge(
                         conn, name, validated_qty, purchase_date, expiry_date, category,
                         window_days=app.config['MERGE_EXPIRY_WINDOW_DAYS'],
+                        user_id=current_user_id(), receipt_id=receipt['id'],
                     )
                     added_count += 1
                     merged_count += int(result.merged)
-
-                except (ValueError, IndexError) as e:
+                    per_receipt[receipt['id']] += 1
+                except ValueError as e:
                     logger.warning(f"Error processing OCR item {idx}: {e}")
                     errors.append(f"Item {idx}: Invalid data")
-                    continue
 
+            for rid, count in per_receipt.items():
+                receipt_store.mark(conn, current_user_id(), rid, 'imported', count)
             conn.commit()
             conn.close()
 
-            # Clear session
-            session.pop('ocr_items', None)
-
-            # Provide feedback
             if added_count > 0:
                 logger.info(f"OCR review completed: {added_count} items added")
                 merged_note = f' ({merged_count} combined with items already in stock)' if merged_count else ''
                 flash(f'Successfully added {added_count} items{merged_note}!', 'success')
-
             if errors:
                 logger.warning(f"OCR review had {len(errors)} errors")
                 flash(f'{len(errors)} items had errors and were not added', 'warning')
-
             return redirect(url_for('index'))
 
         except sqlite3.Error as e:
             logger.error(f"Database error during OCR review: {e}")
             flash('Database error occurred. Please try again.', 'error')
-            return redirect(url_for('ocr_review'))
+            return redirect(review_url(receipt_ids))
 
-        except Exception as e:
-            logger.error(f"Unexpected error during OCR review: {e}")
-            flash('An unexpected error occurred. Please try again.', 'error')
-            return redirect(url_for('ocr_review'))
+    return render_template('ocr_review.html', receipts=receipts, rows=rows, categories=CATEGORIES,
+                           receipt_ids=','.join(str(r['id']) for r in receipts))
 
-    items = session.get('ocr_items', [])
-    return render_template('ocr_review.html', items=items, categories=CATEGORIES)
 
+@app.route('/receipts')
+@login_required
+def receipts():
+    """History of scanned receipts with their stored images."""
+    conn = get_db_connection()
+    rows = receipt_store.history(conn, current_user_id())
+    conn.close()
+    return render_template('receipts.html', receipts=rows, keep=app.config['RECEIPT_KEEP'],
+                           max_dimension=app.config['RECEIPT_MAX_DIMENSION'],
+                           storing=app.config['STORE_RECEIPT_IMAGES'])
+
+
+@app.route('/receipts/<int:receipt_id>/image')
+@login_required
+def receipt_image(receipt_id):
+    conn = get_db_connection()
+    row = receipt_store.get(conn, current_user_id(), receipt_id)
+    conn.close()
+    path = receipt_store.image_path(app.config['RECEIPT_FOLDER'], row['image_filename']) if row else None
+    if not path:
+        abort(404)
+    response = send_file(path, mimetype='image/jpeg', max_age=3600)
+    response.headers['Cache-Control'] = 'private, max-age=3600'
+    return response
+
+
+@app.route('/receipts/<int:receipt_id>/delete', methods=['POST'])
+@login_required
+def delete_receipt(receipt_id):
+    conn = get_db_connection()
+    deleted = receipt_store.delete(conn, app.config['RECEIPT_FOLDER'], current_user_id(), receipt_id)
+    conn.commit()
+    conn.close()
+    flash('Receipt deleted. Items already added to the inventory were kept.' if deleted else 'Receipt not found',
+          'success' if deleted else 'error')
+    return redirect(url_for('receipts'))
+
+
+# ---------------------------------------------------------------- other pages and APIs
 
 @app.route('/api/notifications/check', methods=['GET'])
+@login_required
 def check_notifications():
-    """
-    API endpoint to check for items that need notifications.
-    Returns items expiring today and tomorrow.
-    """
+    """Items expiring today, tomorrow, and within three days."""
+    uid = current_user_id()
     try:
         conn = get_db_connection()
-
-        # Items expiring today
         today_items = conn.execute(
-            "SELECT * FROM groceries WHERE expiry_date = date('now', 'localtime') ORDER BY name"
+            "SELECT * FROM groceries WHERE user_id = ? AND expiry_date = date('now', 'localtime') ORDER BY name", (uid,)
         ).fetchall()
-
-        # Items expiring tomorrow
         tomorrow_items = conn.execute(
-            "SELECT * FROM groceries WHERE expiry_date = date('now', 'localtime', '+1 day') ORDER BY name"
+            "SELECT * FROM groceries WHERE user_id = ? AND expiry_date = date('now', 'localtime', '+1 day') ORDER BY name",
+            (uid,)
         ).fetchall()
-
-        # Items expiring within 3 days
         soon_items = conn.execute(
-            "SELECT * FROM groceries WHERE expiry_date > date('now', 'localtime', '+1 day') "
-            "AND expiry_date <= date('now', 'localtime', '+3 days') ORDER BY expiry_date, name"
+            "SELECT * FROM groceries WHERE user_id = ? AND expiry_date > date('now', 'localtime', '+1 day') "
+            "AND expiry_date <= date('now', 'localtime', '+3 days') ORDER BY expiry_date, name", (uid,)
         ).fetchall()
-
         conn.close()
-
         return {
             'today': [dict(item) for item in today_items],
             'tomorrow': [dict(item) for item in tomorrow_items],
@@ -755,46 +917,35 @@ def check_notifications():
 
 
 @app.route('/shopping-list')
+@login_required
 def shopping_list():
-    """
-    Smart shopping list that automatically suggests items based on:
-    - Items that are running low (quantity <= 2)
-    - Items that expired recently (might need replacement)
-    - Frequently purchased items
-    """
+    """Suggestions: low stock, recently expired, and frequently bought items."""
+    uid = current_user_id()
     try:
         conn = get_db_connection()
-
-        # Low stock items
         low_stock = conn.execute(
-            'SELECT * FROM groceries WHERE quantity <= 2 AND quantity > 0 ORDER BY quantity ASC'
+            'SELECT * FROM groceries WHERE user_id = ? AND quantity <= 2 AND quantity > 0 ORDER BY quantity ASC', (uid,)
         ).fetchall()
-
-        # Recently expired items (last 7 days)
         expired_recent = conn.execute(
-            "SELECT * FROM groceries WHERE expiry_date < date('now', 'localtime') "
-            "AND expiry_date >= date('now', 'localtime', '-7 days') ORDER BY expiry_date DESC"
+            "SELECT * FROM groceries WHERE user_id = ? AND expiry_date < date('now', 'localtime') "
+            "AND expiry_date >= date('now', 'localtime', '-7 days') ORDER BY expiry_date DESC", (uid,)
         ).fetchall()
-
-        # Frequently purchased items (appears more than 3 times in history)
-        # This is a simplified version - in production you'd have a purchase history table
         frequently_purchased = conn.execute(
             '''SELECT name, category, COUNT(*) as purchase_count,
                MAX(purchase_date) as last_purchase
                FROM groceries
+               WHERE user_id = ?
                GROUP BY LOWER(name)
                HAVING purchase_count >= 2
                ORDER BY purchase_count DESC, last_purchase DESC
-               LIMIT 10'''
+               LIMIT 10''', (uid,)
         ).fetchall()
-
         conn.close()
-
         return render_template('shopping_list.html',
-                             low_stock=low_stock,
-                             expired_recent=expired_recent,
-                             frequently_purchased=frequently_purchased,
-                             categories=CATEGORIES)
+                               low_stock=low_stock,
+                               expired_recent=expired_recent,
+                               frequently_purchased=frequently_purchased,
+                               categories=CATEGORIES)
 
     except Exception as e:
         logger.error(f"Error loading shopping list: {e}")
@@ -803,73 +954,57 @@ def shopping_list():
 
 
 @app.route('/statistics')
+@login_required
 def statistics():
-    """
-    Advanced statistics and insights dashboard.
-    Shows spending patterns, waste tracking, and inventory trends.
-    """
+    """Category distribution, monthly trends, and waste tracking."""
+    uid = current_user_id()
     try:
         conn = get_db_connection()
-
-        # Category distribution
         category_stats = conn.execute(
             '''SELECT category, COUNT(*) as item_count, SUM(quantity) as total_quantity
-               FROM groceries
+               FROM groceries WHERE user_id = ?
                GROUP BY category
-               ORDER BY item_count DESC'''
+               ORDER BY item_count DESC''', (uid,)
         ).fetchall()
-
-        # Monthly purchase trends (last 6 months)
         monthly_trends = conn.execute(
             '''SELECT strftime('%Y-%m', purchase_date) as month,
                COUNT(*) as items_added, SUM(quantity) as total_quantity
                FROM groceries
-               WHERE purchase_date >= date('now', 'localtime', '-6 months')
+               WHERE user_id = ? AND purchase_date >= date('now', 'localtime', '-6 months')
                GROUP BY month
-               ORDER BY month DESC'''
+               ORDER BY month DESC''', (uid,)
         ).fetchall()
-
-        # Waste tracking - expired items
         waste_stats = conn.execute(
             '''SELECT category, COUNT(*) as expired_count, SUM(quantity) as wasted_quantity
                FROM groceries
-               WHERE expiry_date < date('now', 'localtime')
+               WHERE user_id = ? AND expiry_date < date('now', 'localtime')
                GROUP BY category
-               ORDER BY expired_count DESC'''
+               ORDER BY expired_count DESC''', (uid,)
         ).fetchall()
-
-        # Total waste count
         total_waste = conn.execute(
-            "SELECT COUNT(*) as count FROM groceries WHERE expiry_date < date('now', 'localtime')"
+            "SELECT COUNT(*) as count FROM groceries WHERE user_id = ? AND expiry_date < date('now', 'localtime')", (uid,)
         ).fetchone()['count']
-
-        # Items saved from waste (consumed before expiry)
         items_saved = conn.execute(
             '''SELECT COUNT(*) as count FROM groceries
-               WHERE expiry_date >= date('now', 'localtime') OR expiry_date IS NULL'''
+               WHERE user_id = ? AND (expiry_date >= date('now', 'localtime') OR expiry_date IS NULL)''', (uid,)
         ).fetchone()['count']
-
-        # Average shelf life
         avg_shelf_life = conn.execute(
             '''SELECT AVG(JULIANDAY(expiry_date) - JULIANDAY(purchase_date)) as avg_days
                FROM groceries
-               WHERE expiry_date IS NOT NULL AND purchase_date IS NOT NULL'''
+               WHERE user_id = ? AND expiry_date IS NOT NULL AND purchase_date IS NOT NULL''', (uid,)
         ).fetchone()['avg_days']
-
         conn.close()
 
-        # Calculate waste reduction percentage
         total_items = total_waste + items_saved
         waste_reduction = (items_saved / total_items * 100) if total_items > 0 else 0
-
         return render_template('statistics.html',
-                             category_stats=category_stats,
-                             monthly_trends=monthly_trends,
-                             waste_stats=waste_stats,
-                             total_waste=total_waste,
-                             items_saved=items_saved,
-                             waste_reduction=waste_reduction,
-                             avg_shelf_life=avg_shelf_life)
+                               category_stats=category_stats,
+                               monthly_trends=monthly_trends,
+                               waste_stats=waste_stats,
+                               total_waste=total_waste,
+                               items_saved=items_saved,
+                               waste_reduction=waste_reduction,
+                               avg_shelf_life=avg_shelf_life)
 
     except Exception as e:
         logger.error(f"Error loading statistics: {e}")
@@ -878,12 +1013,10 @@ def statistics():
 
 
 @app.route('/settings', methods=['GET', 'POST'])
+@login_required
 def settings():
-    """
-    User settings page for notification preferences and app configuration.
-    """
+    """Notification preferences and data management."""
     if request.method == 'POST':
-        # Save notification preferences to session or database
         session['notifications_enabled'] = request.form.get('notifications_enabled') == 'on'
         session['notification_time'] = request.form.get('notification_time', '09:00')
         try:
@@ -891,60 +1024,39 @@ def settings():
         except ValueError:
             warning_days = 7
         session['expiry_warning_days'] = min(max(warning_days, 1), 30)
-
         flash('Settings saved successfully!', 'success')
         return redirect(url_for('settings'))
 
-    # Load current settings
-    notifications_enabled = session.get('notifications_enabled', True)
-    notification_time = session.get('notification_time', '09:00')
-    expiry_warning_days = session.get('expiry_warning_days', app.config['EXPIRY_WARNING_DAYS'])
-
     return render_template('settings.html',
-                         notifications_enabled=notifications_enabled,
-                         notification_time=notification_time,
-                         expiry_warning_days=expiry_warning_days)
+                           notifications_enabled=session.get('notifications_enabled', True),
+                           notification_time=session.get('notification_time', '09:00'),
+                           expiry_warning_days=session.get('expiry_warning_days', app.config['EXPIRY_WARNING_DAYS']))
 
 
 @app.route('/barcode')
+@login_required
 def barcode():
-    """
-    Barcode scanner page for quick product addition.
-    """
+    """Barcode scanner page for quick product addition."""
     return render_template('barcode.html', categories=CATEGORIES,
-                           sample_codes=barcode_catalog.sample_codes())
+                           sample_codes=barcode_catalog.sample_codes(),
+                           online_lookup=app.config['BARCODE_ONLINE_LOOKUP'])
 
 
 @app.route('/api/export')
+@login_required
 def export_data():
-    """
-    Export inventory data as CSV file.
-    """
-    import csv
-    from io import StringIO
-    from flask import make_response
-
+    """Export the account's inventory as CSV."""
     try:
         conn = get_db_connection()
-        groceries = conn.execute('SELECT * FROM groceries ORDER BY purchase_date DESC').fetchall()
+        groceries = conn.execute('SELECT * FROM groceries WHERE user_id = ? ORDER BY purchase_date DESC',
+                                 (current_user_id(),)).fetchall()
         conn.close()
-
-        # Create CSV
         si = StringIO()
         writer = csv.writer(si)
         writer.writerow(['ID', 'Name', 'Quantity', 'Category', 'Purchase Date', 'Expiry Date', 'Notes'])
-
         for item in groceries:
-            writer.writerow([
-                item['id'],
-                item['name'],
-                item['quantity'],
-                item['category'],
-                item['purchase_date'],
-                item['expiry_date'] or '',
-                item['notes'] or ''
-            ])
-
+            writer.writerow([item['id'], item['name'], item['quantity'], item['category'], item['purchase_date'],
+                             item['expiry_date'] or '', item['notes'] or ''])
         output = make_response(si.getvalue())
         output.headers["Content-Disposition"] = "attachment; filename=grocery_inventory.csv"
         output.headers["Content-type"] = "text/csv"
@@ -956,17 +1068,16 @@ def export_data():
 
 
 @app.route('/api/clear-expired', methods=['POST'])
+@login_required
 def clear_expired():
-    """
-    Remove all expired items from inventory.
-    """
+    """Remove the account's expired items."""
     try:
         conn = get_db_connection()
-        result = conn.execute("DELETE FROM groceries WHERE expiry_date < date('now', 'localtime')")
+        result = conn.execute("DELETE FROM groceries WHERE user_id = ? AND expiry_date < date('now', 'localtime')",
+                              (current_user_id(),))
         count = result.rowcount
         conn.commit()
         conn.close()
-
         logger.info(f"Cleared {count} expired items")
         return {'success': True, 'count': count}
 
@@ -976,17 +1087,15 @@ def clear_expired():
 
 
 @app.route('/api/reset', methods=['POST'])
+@login_required
 def reset_data():
-    """
-    Reset all data - DELETE EVERYTHING.
-    """
+    """Delete all of the account's items (other households are untouched)."""
     try:
         conn = get_db_connection()
-        conn.execute('DELETE FROM groceries')
+        conn.execute('DELETE FROM groceries WHERE user_id = ?', (current_user_id(),))
         conn.commit()
         conn.close()
-
-        logger.warning("All data has been reset!")
+        logger.warning(f"All data reset for account {current_user_id()}")
         return {'success': True}
 
     except Exception as e:
@@ -995,20 +1104,15 @@ def reset_data():
 
 
 @app.route('/api/share/<int:item_id>')
+@login_required
 def share_item(item_id):
-    """
-    Generate shareable link for an inventory item.
-    """
+    """Item details for the share button."""
     try:
         conn = get_db_connection()
-        item = conn.execute('SELECT * FROM groceries WHERE id = ?', (item_id,)).fetchone()
+        item = get_item(conn, item_id)
         conn.close()
-
         if not item:
             return {'error': 'Item not found'}, 404
-
-        # In production, you'd generate a secure share token
-        # For now, return item details
         return {
             'id': item['id'],
             'name': item['name'],
@@ -1023,11 +1127,13 @@ def share_item(item_id):
 
 
 @app.route('/api/barcode/<barcode_number>')
+@login_required
 def barcode_lookup(barcode_number):
     """
-    Look up a barcode in the small offline catalog bundled with the app
-    (see barcode_catalog.py). There is no online product database, so unknown
-    codes return 404 and the user enters the details by hand.
+    Look up a barcode. The bundled offline catalog (barcode_catalog.py) is
+    checked first. When BARCODE_ONLINE_LOOKUP is on, unknown codes are also
+    looked up on Open Food Facts; if that is off, slow, or unreachable, the
+    user simply enters the details by hand.
     """
     code = barcode_number.strip()
     if not barcode_catalog.is_valid_gtin(code):
@@ -1038,31 +1144,26 @@ def barcode_lookup(barcode_number):
         }, 400
 
     product = barcode_catalog.lookup(code)
+    source = barcode_catalog.SOURCE
+    online = app.config['BARCODE_ONLINE_LOOKUP']
+    if product is None and online:
+        product = barcode_catalog.lookup_online(code, timeout=app.config['BARCODE_LOOKUP_TIMEOUT'])
+        source = barcode_catalog.ONLINE_SOURCE
     if product is None:
-        return {
-            'barcode': code,
-            'found': False,
-            'message': 'Not in the local catalog. Enter the product details manually.',
-        }, 404
+        message = ('Not found in the local catalog or on Open Food Facts. Enter the product details manually.'
+                   if online else 'Not in the local catalog. Enter the product details manually.')
+        return {'barcode': code, 'found': False, 'online': online, 'message': message}, 404
 
     return {
         'barcode': code,
         'found': True,
         'name': product['name'],
         'category': product['category'],
-        'source': barcode_catalog.SOURCE,
+        'source': source,
     }
 
 
 if __name__ == '__main__':
-    # Initialize database if it doesn't exist
-    try:
-        init_db()
-        logger.info("Application starting...")
-    except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
-
-    # Run the application
     app.run(
         host=app.config['HOST'],
         port=app.config['PORT'],

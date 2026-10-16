@@ -50,11 +50,12 @@ def expiry_close(a: Optional[str], b: Optional[str], window_days: int) -> bool:
 
 
 def find_merge_candidate(conn: sqlite3.Connection, name: str, category: str,
-                         expiry_date: Optional[str], window_days: int) -> Optional[sqlite3.Row]:
-    """Find the existing row a new item should merge into, or None."""
+                         expiry_date: Optional[str], window_days: int,
+                         user_id: Optional[int] = None) -> Optional[sqlite3.Row]:
+    """Find the existing row (in the same account) a new item should merge into, or None."""
     key = normalize_name(name)
     best, best_gap = None, None
-    rows = conn.execute("SELECT * FROM groceries WHERE category = ?", (category,)).fetchall()
+    rows = conn.execute("SELECT * FROM groceries WHERE category = ? AND user_id IS ?", (category, user_id)).fetchall()
     for row in rows:
         if normalize_name(row["name"]) != key or not expiry_close(row["expiry_date"], expiry_date, window_days):
             continue
@@ -73,17 +74,20 @@ class AddResult(NamedTuple):
 
 def add_or_merge(conn: sqlite3.Connection, name: str, quantity: int, purchase_date: str,
                  expiry_date: Optional[str], category: str, notes: str = "",
-                 window_days: int = 3, merge: bool = True) -> AddResult:
+                 window_days: int = 3, merge: bool = True, user_id: Optional[int] = None,
+                 receipt_id: Optional[int] = None) -> AddResult:
     """Insert a grocery item, or merge it into a matching row already in stock.
 
-    The caller commits the transaction.
+    Only rows of the same account (``user_id``) are merge candidates. The
+    caller commits the transaction.
     """
     expiry_date = expiry_date or None
-    existing = find_merge_candidate(conn, name, category, expiry_date, window_days) if merge else None
+    existing = find_merge_candidate(conn, name, category, expiry_date, window_days, user_id) if merge else None
     if existing is None:
         cur = conn.execute(
-            "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes) VALUES (?, ?, ?, ?, ?, ?)",
-            (name, quantity, purchase_date, expiry_date, category, notes),
+            "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes, user_id, receipt_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, quantity, purchase_date, expiry_date, category, notes, user_id, receipt_id),
         )
         return AddResult(cur.lastrowid, False, name, quantity)
 

@@ -26,6 +26,25 @@ class Config:
     DATABASE_PATH = os.environ.get('DATABASE_PATH', os.path.join(BASE_DIR, 'groceries.db'))
     SCHEMA_PATH = os.path.join(BASE_DIR, 'schema.sql')
 
+    # Receipt images are kept for the review screen and the receipt history.
+    # They are re-encoded as JPEG no larger than RECEIPT_MAX_DIMENSION pixels on
+    # the long side, and only the newest RECEIPT_KEEP images per account are kept.
+    RECEIPT_FOLDER = os.environ.get('RECEIPT_FOLDER', os.path.join(UPLOAD_FOLDER, 'receipts'))
+    STORE_RECEIPT_IMAGES = os.environ.get('STORE_RECEIPT_IMAGES', 'true').lower() in ('true', '1', 'yes')
+    RECEIPT_MAX_DIMENSION = int(os.environ.get('RECEIPT_MAX_DIMENSION', '1600'))
+    RECEIPT_KEEP = int(os.environ.get('RECEIPT_KEEP', '100'))
+
+    # Batch receipt upload: at most this many images per batch.
+    BATCH_MAX_FILES = int(os.environ.get('BATCH_MAX_FILES', '10'))
+
+    # Barcode lookup. The bundled offline catalog is always used first. Setting
+    # BARCODE_ONLINE_LOOKUP=true also asks Open Food Facts for unknown codes.
+    BARCODE_ONLINE_LOOKUP = os.environ.get('BARCODE_ONLINE_LOOKUP', 'false').lower() in ('true', '1', 'yes')
+    BARCODE_LOOKUP_TIMEOUT = float(os.environ.get('BARCODE_LOOKUP_TIMEOUT', '4'))
+
+    # Household accounts
+    MIN_PASSWORD_LENGTH = 8
+
     # OCR settings
     OCR_LANGUAGES = os.environ.get('OCR_LANGUAGES', 'eng+kor')
     OCR_TIMEOUT = int(os.environ.get('OCR_TIMEOUT', '30'))  # seconds

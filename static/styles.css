@@ -1,4 +1,7 @@
-/* Grocery Inventory Tracker: theme layered on top of the vendored Bootstrap 5 */
+/* Grocery Inventory Tracker: theme layered on top of the vendored Bootstrap 5.
+   Light colors are the defaults below. Dark mode follows prefers-color-scheme,
+   and the navbar toggle can override it (stored in localStorage, applied as
+   data-bs-theme on <html> before the page paints). */
 
 :root {
     --gt-bg: #f6f7f5;
@@ -9,12 +12,22 @@
     --gt-primary: #1f7a5a;
     --gt-primary-dark: #17604a;
     --gt-primary-soft: #e6f2ec;
-    --gt-warning: #b26a00;
+    --gt-warning: #935800;
     --gt-warning-soft: #fff3df;
     --gt-danger: #c0392b;
     --gt-danger-soft: #fdecea;
     --gt-radius: 14px;
     --gt-shadow: 0 1px 2px rgba(16, 24, 20, 0.04), 0 4px 16px rgba(16, 24, 20, 0.04);
+    --gt-subtle: #f1f3f0;
+    --gt-subtle-hover: #e5e9e4;
+    --gt-subtle-active: #d6dbd4;
+    --gt-subtle-text: #4a534e;
+    --gt-thead: #f9faf8;
+    --gt-row-border: #eef0ed;
+    --gt-input-border: #d9ddd8;
+    --gt-amber: #e2a03f;
+    --gt-on-primary: #ffffff;
+    --gt-focus-ring: rgba(31, 122, 90, 0.15);
 
     --bs-body-font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --bs-body-bg: var(--gt-bg);
@@ -74,7 +87,7 @@ h2, h3, h4, h5 {
     height: 32px;
     border-radius: 9px;
     background: var(--gt-primary);
-    color: #fff;
+    color: var(--gt-on-primary);
     font-size: 0.95rem;
     font-weight: 700;
 }
@@ -133,6 +146,10 @@ h2, h3, h4, h5 {
     --bs-btn-active-border-color: var(--gt-primary-dark);
     --bs-btn-disabled-bg: var(--gt-primary);
     --bs-btn-disabled-border-color: var(--gt-primary);
+    --bs-btn-color: var(--gt-on-primary);
+    --bs-btn-hover-color: var(--gt-on-primary);
+    --bs-btn-active-color: var(--gt-on-primary);
+    --bs-btn-disabled-color: var(--gt-on-primary);
 }
 
 .btn-outline-primary {
@@ -142,13 +159,20 @@ h2, h3, h4, h5 {
     --bs-btn-hover-border-color: var(--gt-primary);
     --bs-btn-active-bg: var(--gt-primary-dark);
     --bs-btn-active-border-color: var(--gt-primary-dark);
+    --bs-btn-hover-color: var(--gt-on-primary);
+    --bs-btn-active-color: var(--gt-on-primary);
 }
 
 .btn-light {
-    --bs-btn-bg: #f1f3f0;
-    --bs-btn-border-color: #f1f3f0;
-    --bs-btn-hover-bg: #e5e9e4;
-    --bs-btn-hover-border-color: #e5e9e4;
+    --bs-btn-color: var(--gt-text);
+    --bs-btn-bg: var(--gt-subtle);
+    --bs-btn-border-color: var(--gt-subtle);
+    --bs-btn-hover-color: var(--gt-text);
+    --bs-btn-hover-bg: var(--gt-subtle-hover);
+    --bs-btn-hover-border-color: var(--gt-subtle-hover);
+    --bs-btn-active-color: var(--gt-text);
+    --bs-btn-active-bg: var(--gt-subtle-active);
+    --bs-btn-active-border-color: var(--gt-subtle-active);
 }
 
 /* Surfaces */
@@ -298,7 +322,7 @@ h2, h3, h4, h5 {
 }
 
 .table thead th {
-    background: #f9faf8;
+    background: var(--gt-thead);
     color: var(--gt-muted);
     font-size: 0.75rem;
     font-weight: 600;
@@ -311,7 +335,7 @@ h2, h3, h4, h5 {
 
 .table tbody td {
     padding: 0.75rem 1rem;
-    border-color: #eef0ed;
+    border-color: var(--gt-row-border);
 }
 
 .table tbody tr:last-child td {
@@ -323,7 +347,7 @@ h2, h3, h4, h5 {
 }
 
 .inventory-table tbody tr.row-warning td:first-child {
-    box-shadow: inset 4px 0 0 #e2a03f;
+    box-shadow: inset 4px 0 0 var(--gt-amber);
 }
 
 /* Status and category pills */
@@ -340,9 +364,9 @@ h2, h3, h4, h5 {
 .status-good { background: var(--gt-primary-soft); color: var(--gt-primary-dark); }
 .status-warning { background: var(--gt-warning-soft); color: var(--gt-warning); }
 .status-expired { background: var(--gt-danger-soft); color: var(--gt-danger); }
-.status-none { background: #f1f3f0; color: var(--gt-muted); }
+.status-none { background: var(--gt-subtle); color: var(--gt-muted); }
 
-.category-pill { background: #f1f3f0; color: #4a534e; font-weight: 500; }
+.category-pill { background: var(--gt-subtle); color: var(--gt-subtle-text); font-weight: 500; }
 .cat-dairy { background: #e8f1fb; color: #2a5d8f; }
 .cat-meat { background: #fbeaea; color: #9a3b3b; }
 .cat-produce { background: #e8f5e9; color: #2e7d32; }
@@ -367,14 +391,14 @@ h2, h3, h4, h5 {
 .form-control,
 .form-select {
     border-radius: 10px;
-    border-color: #d9ddd8;
+    border-color: var(--gt-input-border);
 }
 
 .form-control:focus,
 .form-select:focus,
 .form-check-input:focus {
     border-color: var(--gt-primary);
-    box-shadow: 0 0 0 3px rgba(31, 122, 90, 0.15);
+    box-shadow: 0 0 0 3px var(--gt-focus-ring);
 }
 
 .form-check-input:checked {
@@ -396,9 +420,9 @@ h2, h3, h4, h5 {
 
 /* OCR upload */
 .upload-drop {
-    border: 2px dashed #cfd6cf;
+    border: 2px dashed var(--gt-input-border);
     border-radius: var(--gt-radius);
-    background: #fafbf9;
+    background: var(--gt-thead);
     padding: 2rem 1rem;
     text-align: center;
 }
@@ -440,19 +464,19 @@ label.btn {
 /* Legacy Bootstrap utility classes still used by secondary pages */
 .btn-secondary {
     --bs-btn-color: var(--gt-text);
-    --bs-btn-bg: #eceee9;
-    --bs-btn-border-color: #eceee9;
+    --bs-btn-bg: var(--gt-subtle);
+    --bs-btn-border-color: var(--gt-subtle);
     --bs-btn-hover-color: var(--gt-text);
-    --bs-btn-hover-bg: #e0e4de;
-    --bs-btn-hover-border-color: #e0e4de;
+    --bs-btn-hover-bg: var(--gt-subtle-hover);
+    --bs-btn-hover-border-color: var(--gt-subtle-hover);
     --bs-btn-active-color: var(--gt-text);
-    --bs-btn-active-bg: #d6dbd4;
-    --bs-btn-active-border-color: #d6dbd4;
+    --bs-btn-active-bg: var(--gt-subtle-active);
+    --bs-btn-active-border-color: var(--gt-subtle-active);
 }
 
 .badge.bg-secondary {
-    background: #eef0ed !important;
-    color: #4a534e;
+    background: var(--gt-subtle) !important;
+    color: var(--gt-subtle-text);
 }
 
 .list-group-item h5 {
@@ -474,3 +498,149 @@ label.btn {
 input[type="checkbox"] {
     accent-color: var(--gt-primary);
 }
+
+/* Dark theme. Text and button pairs keep at least 4.5:1 contrast (WCAG AA);
+   scripts/check_contrast.py checks the main pairs. */
+[data-bs-theme="dark"] {
+    --gt-bg: #111614;
+    --gt-surface: #1a201d;
+    --gt-border: #2e3732;
+    --gt-text: #e6ebe8;
+    --gt-muted: #a5b0aa;
+    --gt-primary: #5cc99d;
+    --gt-primary-dark: #7dd8b3;
+    --gt-primary-soft: #183a2d;
+    --gt-warning: #f2b75e;
+    --gt-warning-soft: #33270f;
+    --gt-danger: #ff8f80;
+    --gt-danger-soft: #3b1c19;
+    --gt-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+    --gt-subtle: #252c28;
+    --gt-subtle-hover: #2f3833;
+    --gt-subtle-active: #39433d;
+    --gt-subtle-text: #c9d1cc;
+    --gt-thead: #202723;
+    --gt-row-border: #29312d;
+    --gt-input-border: #3a443f;
+    --gt-amber: #e2a03f;
+    --gt-on-primary: #08130e;
+    --gt-focus-ring: rgba(92, 201, 157, 0.3);
+
+    --bs-body-bg: var(--gt-bg);
+    --bs-body-color: var(--gt-text);
+    --bs-secondary-color: var(--gt-muted);
+    --bs-link-color: var(--gt-primary);
+    --bs-link-color-rgb: 92, 201, 157;
+    --bs-link-hover-color: var(--gt-primary-dark);
+    --bs-link-hover-color-rgb: 125, 216, 179;
+    --bs-border-color: var(--gt-border);
+    --bs-primary-rgb: 92, 201, 157;
+    --bs-tertiary-bg: var(--gt-subtle);
+    color-scheme: dark;
+}
+
+[data-bs-theme="dark"] .text-muted { color: var(--gt-muted) !important; }
+[data-bs-theme="dark"] .use-soon-item { border-color: #5a4520; }
+[data-bs-theme="dark"] .use-soon-item.is-urgent { border-color: #8a6420; }
+[data-bs-theme="dark"] .use-soon-item.is-expired { border-color: #6b302a; }
+[data-bs-theme="dark"] .cat-dairy { background: #1c2c3d; color: #9cc6f0; }
+[data-bs-theme="dark"] .cat-meat { background: #3a2020; color: #f0a8a8; }
+[data-bs-theme="dark"] .cat-produce { background: #1d3320; color: #98d89c; }
+[data-bs-theme="dark"] .cat-bakery { background: #372a17; color: #e9c08a; }
+[data-bs-theme="dark"] .cat-frozen { background: #17323a; color: #8fd4de; }
+[data-bs-theme="dark"] .cat-pantry { background: #322b20; color: #d9c4a2; }
+[data-bs-theme="dark"] .cat-beverages { background: #29233d; color: #c3b3f0; }
+[data-bs-theme="dark"] .cat-snacks { background: #3a1f2c; color: #f0a8c8; }
+[data-bs-theme="dark"] .badge.bg-success { background: #1f6f4f !important; color: #f2fbf6; }
+[data-bs-theme="dark"] .badge.bg-primary { background: #2a5d8f !important; color: #f2f7fc; }
+[data-bs-theme="dark"] .badge.bg-warning { background: #f2b75e !important; color: #1b1406 !important; }
+[data-bs-theme="dark"] .badge.bg-danger { background: #a8352a !important; color: #fff3f1; }
+[data-bs-theme="dark"] .alert-success { --bs-alert-bg: #163326; --bs-alert-color: #b8ecd3; --bs-alert-border-color: #245c43; }
+[data-bs-theme="dark"] .alert-info { --bs-alert-bg: #12303a; --bs-alert-color: #b3e3f0; --bs-alert-border-color: #1f5566; }
+[data-bs-theme="dark"] .alert-warning { --bs-alert-bg: #33270f; --bs-alert-color: #f5d39b; --bs-alert-border-color: #5f4718; }
+[data-bs-theme="dark"] .alert-danger { --bs-alert-bg: #3b1c19; --bs-alert-color: #f8c1b9; --bs-alert-border-color: #6b302a; }
+[data-bs-theme="dark"] img.receipt-thumb,
+[data-bs-theme="dark"] .receipt-group img { filter: brightness(0.92); }
+
+/* Without JavaScript, follow the system setting for the app's own colors. */
+@media (prefers-color-scheme: dark) {
+    html:not([data-bs-theme]) {
+        --gt-bg: #111614;
+        --gt-surface: #1a201d;
+        --gt-border: #2e3732;
+        --gt-text: #e6ebe8;
+        --gt-muted: #a5b0aa;
+        --gt-primary: #5cc99d;
+        --gt-primary-dark: #7dd8b3;
+        --gt-on-primary: #08130e;
+        --bs-body-bg: #111614;
+        --bs-body-color: #e6ebe8;
+    }
+}
+
+/* Theme toggle */
+.theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid var(--gt-border);
+    background: transparent;
+    color: var(--gt-text);
+}
+
+.theme-toggle:hover { background: var(--gt-subtle); }
+.theme-toggle svg { width: 18px; height: 18px; }
+.theme-toggle .icon-sun { display: none; }
+[data-bs-theme="dark"] .theme-toggle .icon-sun { display: block; }
+[data-bs-theme="dark"] .theme-toggle .icon-moon { display: none; }
+
+/* Accounts */
+.auth-panel { padding: 2rem; }
+.account-name { color: var(--gt-muted); font-size: 0.85rem; }
+
+/* Stored receipt images */
+.receipt-thumb {
+    display: block;
+    width: 72px;
+    height: 96px;
+    object-fit: cover;
+    object-position: top;
+    border: 1px solid var(--gt-border);
+    border-radius: 8px;
+    background: #fff;
+}
+
+.receipt-group-header {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: 1rem;
+    border-bottom: 1px solid var(--gt-border);
+}
+
+.receipt-group-header .receipt-thumb { width: 96px; height: 128px; }
+
+.receipt-meta { font-size: 0.875rem; color: var(--gt-muted); }
+
+/* Batch upload */
+.batch-list { list-style: none; padding: 0; margin: 0; }
+
+.batch-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--gt-row-border);
+}
+
+.batch-list li:last-child { border-bottom: 0; }
+.batch-list img { width: 40px; height: 52px; object-fit: cover; border-radius: 6px; border: 1px solid var(--gt-border); }
+.batch-list .batch-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-status { font-size: 0.8rem; white-space: nowrap; color: var(--gt-muted); }
+.batch-status.is-done { color: var(--gt-primary); font-weight: 600; }
+.batch-status.is-error { color: var(--gt-danger); font-weight: 600; }
+.batch-remove { border: 0; background: transparent; color: var(--gt-muted); font-size: 1.1rem; line-height: 1; }

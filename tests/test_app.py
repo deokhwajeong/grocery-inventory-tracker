@@ -12,11 +12,14 @@ def iso(days_from_today):
     return (date.today() + timedelta(days=days_from_today)).isoformat()
 
 
-def add_item(db, name, qty=1, purchase=-1, expiry=None, category="Other", notes=""):
+def add_item(db, name, qty=1, purchase=-1, expiry=None, category="Other", notes="", user=None):
+    """Insert an item for the signed-in test account (or the given user id)."""
+    if user is None:
+        user = db.execute("SELECT id FROM users WHERE username = 'tester'").fetchone()[0]
     db.execute(
-        "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (name, qty, iso(purchase), iso(expiry) if expiry is not None else None, category, notes),
+        "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes, user_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, qty, iso(purchase), iso(expiry) if expiry is not None else None, category, notes, user),
     )
     db.commit()
 
@@ -172,20 +175,23 @@ def test_settings_warning_days_affects_dashboard(client, db):
     assert "Use these first" in client.get("/").get_data(as_text=True)
 
 
-def test_ocr_review_saves_selected_items(client, db):
-    with client.session_transaction() as sess:
-        sess["ocr_items"] = [
-            {"name": "Milk", "quantity": 1, "purchase_date": iso(0), "category": "Dairy", "confidence": 95},
-            {"name": "Bread", "quantity": 1, "purchase_date": iso(0), "category": "Bakery", "confidence": 90},
-        ]
-    page = client.get("/ocr/review")
-    assert page.status_code == 200 and b"Milk" in page.data
-    client.post("/ocr/review", data={
+def test_ocr_review_saves_selected_items(client, db, pending_receipt):
+    rid = pending_receipt([
+        {"name": "Milk", "quantity": 1, "purchase_date": iso(0), "category": "Dairy", "confidence": 95, "price": "3.99"},
+        {"name": "Bread", "quantity": 1, "purchase_date": iso(0), "category": "Bakery", "confidence": 90},
+    ])
+    page = client.get(f"/ocr/review?receipts={rid}")
+    assert page.status_code == 200 and b"Milk" in page.data and b"$3.99" in page.data
+    client.post(f"/ocr/review?receipts={rid}", data={
         "selected": ["0"], "name_0": "Milk", "quantity_0": "2", "purchase_date_0": iso(0),
         "expiry_date_0": iso(7), "category_0": "Dairy",
     })
-    rows = db.execute("SELECT name, quantity FROM groceries").fetchall()
-    assert [(r[0], r[1]) for r in rows] == [("Milk", 2)]
+    rows = db.execute("SELECT name, quantity, receipt_id FROM groceries").fetchall()
+    assert [(r[0], r[1], r[2]) for r in rows] == [("Milk", 2, rid)]
+    receipt = db.execute("SELECT status, imported_count FROM receipts WHERE id = ?", (rid,)).fetchone()
+    assert (receipt["status"], receipt["imported_count"]) == ("imported", 1)
+    # an imported receipt cannot be reviewed again
+    assert client.get(f"/ocr/review?receipts={rid}").status_code == 302
 
 
 def test_ocr_upload_without_tesseract_degrades_gracefully(client, monkeypatch):
@@ -242,12 +248,12 @@ def test_share_and_shopping_list(client, db):
     assert "Whole Milk" in html
 
 
-def test_ocr_review_without_session_and_without_selection(client):
+def test_ocr_review_without_receipts_and_without_selection(client, pending_receipt):
     assert client.get("/ocr/review").status_code == 302
-    with client.session_transaction() as sess:
-        sess["ocr_items"] = [{"name": "Milk", "quantity": 1, "purchase_date": iso(0), "category": "Dairy", "confidence": 90}]
-    assert b"No items selected" in client.post("/ocr/review", data={}, follow_redirects=True).data
-    response = client.post("/ocr/review", data={"selected": ["0", "7"], "name_0": "M", "quantity_0": "1",
+    assert client.get("/ocr/review?receipts=abc,999").status_code == 302
+    rid = pending_receipt([{"name": "Milk", "quantity": 1, "purchase_date": iso(0), "category": "Dairy", "confidence": 90}])
+    assert b"No items selected" in client.post(f"/ocr/review?receipts={rid}", data={}, follow_redirects=True).data
+    response = client.post(f"/ocr/review?receipts={rid}", data={"selected": ["0", "7"], "name_0": "M", "quantity_0": "1",
                                                 "purchase_date_0": iso(0)}, follow_redirects=True)
     assert b"1 items had errors" in response.data
 
@@ -268,6 +274,7 @@ def test_upload_requires_a_file(client):
 def test_database_errors_are_handled(client, monkeypatch, method, path):
     def broken():
         raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(app_module, "fetch_user", lambda user_id: {"id": user_id, "username": "tester"})
     monkeypatch.setattr(app_module, "get_db_connection", broken)
     data = {"name": "Milk", "quantity": "1", "purchase_date": iso(0)} if path == "/add" else None
     response = getattr(client, method)(path, data=data, follow_redirects=True)

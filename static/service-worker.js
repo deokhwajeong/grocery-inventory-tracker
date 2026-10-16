@@ -1,15 +1,12 @@
-const CACHE_NAME = 'grocery-tracker-v3';
+const CACHE_NAME = 'grocery-tracker-v4';
+// Only static assets are precached: pages need a signed-in household, and the
+// sign-in page clears these caches so one household's pages are not left behind.
 const urlsToCache = [
-  '/',
   '/static/styles.css',
+  '/static/theme.js',
   '/static/vendor/bootstrap/bootstrap.min.css',
   '/static/vendor/bootstrap/bootstrap.bundle.min.js',
-  '/static/manifest.json',
-  '/add',
-  '/ocr',
-  '/shopping-list',
-  '/statistics',
-  '/settings'
+  '/static/manifest.json'
 ];
 
 // Install event - cache resources

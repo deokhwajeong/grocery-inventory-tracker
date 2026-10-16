@@ -1,4 +1,5 @@
-/* Static demo only: the "demo mode" banner and the sample receipt card. */
+/* Static demo only: the "demo mode" banner and the toast. Colors come from the
+   app theme variables, so the banner follows light and dark mode. */
 .demo-banner {
     display: flex;
     flex-wrap: wrap;
@@ -28,26 +29,7 @@
 
 .demo-reset:hover {
     background: var(--gt-primary, #1f7a5a);
-    color: #fff;
-}
-
-.demo-receipt {
-    display: flex;
-    gap: 1rem;
-    align-items: flex-start;
-}
-
-.demo-receipt > a {
-    flex: 0 0 120px;
-}
-
-.demo-receipt img {
-    display: block;
-    width: 100%;
-    height: auto;
-    border: 1px solid var(--gt-border, #e4e7e3);
-    border-radius: 8px;
-    background: #fff;
+    color: var(--gt-on-primary, #fff);
 }
 
 .demo-toast {

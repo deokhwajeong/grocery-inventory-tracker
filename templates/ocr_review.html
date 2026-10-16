@@ -6,89 +6,109 @@
 <div class="row">
     <div class="col-md-12">
         <h1 class="mb-1">Review scanned items</h1>
-        <p class="text-muted mb-4">Check the items read from your receipt. Fix names, set expiry dates, and untick anything you do not want to save.</p>
-        
-        <form method="POST" action="/ocr/review">
+        <p class="text-muted mb-4">Check the items read from {% if receipts|length > 1 %}your {{ receipts|length }} receipts{% else %}your receipt{% endif %}. Fix names, set expiry dates, and untick anything you do not want to save.</p>
+
+        <form method="POST" action="{{ url_for('ocr_review', receipts=receipt_ids) }}" id="review-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="table-responsive panel p-0">
-                <table class="table align-middle">
-                    <thead>
-                        <tr>
-                            <th width="50">
-                                <input type="checkbox" id="select-all" checked>
-                            </th>
-                            <th>Item Name</th>
-                            <th width="100">Quantity</th>
-                            <th width="150">Purchase Date</th>
-                            <th width="150">Expiry Date</th>
-                            <th width="150">Category</th>
-                            <th width="100">Confidence</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in items %}
-                        <tr>
-                            <td class="text-center">
-                                <input type="checkbox" name="selected" value="{{ loop.index0 }}" class="item-checkbox" checked>
-                            </td>
-                            <td>
-                                <input type="text" class="form-control form-control-sm" name="name_{{ loop.index0 }}" value="{{ item['name'] }}">
-                            </td>
-                            <td>
-                                <input type="number" class="form-control form-control-sm" name="quantity_{{ loop.index0 }}" value="{{ item['quantity'] }}" min="1">
-                            </td>
-                            <td>
-                                <input type="date" class="form-control form-control-sm" name="purchase_date_{{ loop.index0 }}" value="{{ item['purchase_date'] }}">
-                            </td>
-                            <td>
-                                <input type="date" class="form-control form-control-sm" name="expiry_date_{{ loop.index0 }}">
-                            </td>
-                            <td>
-                                <select class="form-select form-select-sm" name="category_{{ loop.index0 }}">
-                                    {% for cat in categories %}
-                                    <option value="{{ cat }}" {% if cat == item.get('category', 'Other') %}selected{% endif %}>{{ cat }}</option>
-                                    {% endfor %}
-                                </select>
-                            </td>
-                            <td class="text-center">
-                                {% set confidence = item.get('confidence', 50) | int %}
-                                {% if confidence >= 80 %}
-                                    <span class="badge bg-success" title="High confidence">{{ confidence }}%</span>
-                                {% elif confidence >= 60 %}
-                                    <span class="badge bg-primary" title="Good confidence">{{ confidence }}%</span>
-                                {% elif confidence >= 40 %}
-                                    <span class="badge bg-warning" title="Medium confidence">{{ confidence }}%</span>
-                                {% else %}
-                                    <span class="badge bg-danger" title="Low confidence - please verify">{{ confidence }}%</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <input type="hidden" name="receipts" value="{{ receipt_ids }}">
+            {% set ns = namespace(i=0) %}
+            {% for receipt in receipts %}
+            <div class="panel p-0 mb-3 receipt-group" data-receipt-id="{{ receipt['id'] }}">
+                <div class="receipt-group-header">
+                    {% if receipt['image_filename'] %}
+                    <a href="{{ url_for('receipt_image', receipt_id=receipt['id']) }}" target="_blank" rel="noopener" class="flex-shrink-0">
+                        <img src="{{ url_for('receipt_image', receipt_id=receipt['id']) }}" alt="Receipt image: {{ receipt['original_name'] }}" class="receipt-thumb">
+                    </a>
+                    {% endif %}
+                    <div class="flex-grow-1">
+                        <div class="fw-semibold">{{ receipt['store'] or receipt['original_name'] or 'Receipt' }}</div>
+                        <div class="receipt-meta">
+                            {{ receipt['items']|length }} items,
+                            {{ (receipt['receipt_type'] or 'unknown')|capitalize }} layout,
+                            {% if receipt['receipt_date'] %}dated {{ receipt['receipt_date'] }}{% else %}no date printed (using today){% endif %}{% if receipt['ocr_seconds'] %}, read in {{ '%.1f'|format(receipt['ocr_seconds']) }} s{% endif %}
+                        </div>
+                        {% if receipt['image_filename'] %}<div class="small mt-1"><a href="{{ url_for('receipt_image', receipt_id=receipt['id']) }}" target="_blank" rel="noopener">Open full image</a></div>{% endif %}
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table align-middle review-table">
+                        <thead>
+                            <tr>
+                                <th width="50"><input type="checkbox" class="select-group" checked aria-label="Select all items on this receipt"></th>
+                                <th>Item Name</th>
+                                <th width="100">Quantity</th>
+                                <th width="100">Price</th>
+                                <th width="150">Purchase Date</th>
+                                <th width="150">Expiry Date</th>
+                                <th width="150">Category</th>
+                                <th width="100">Confidence</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in receipt['items'] %}
+                            {% set i = ns.i %}
+                            <tr>
+                                <td class="text-center">
+                                    <input type="checkbox" name="selected" value="{{ i }}" class="item-checkbox" checked aria-label="Add {{ item['name'] }}">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="name_{{ i }}" value="{{ item['name'] }}" aria-label="Item name">
+                                    {% if item.get('raw_name') and item['raw_name']|lower != item['name']|lower %}<div class="small text-muted mt-1">Printed as {{ item['raw_name'] }}</div>{% endif %}
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm" name="quantity_{{ i }}" value="{{ item['quantity'] }}" min="1" aria-label="Quantity">
+                                </td>
+                                <td class="text-nowrap">{% if item.get('price') %}${{ item['price'] }}{% if item.get('discount') %}<div class="small text-muted">-{{ item['discount'] }} saved</div>{% endif %}{% else %}<span class="text-muted">?</span>{% endif %}</td>
+                                <td>
+                                    <input type="date" class="form-control form-control-sm" name="purchase_date_{{ i }}" value="{{ item['purchase_date'] }}" aria-label="Purchase date">
+                                </td>
+                                <td>
+                                    <input type="date" class="form-control form-control-sm" name="expiry_date_{{ i }}" aria-label="Expiry date">
+                                </td>
+                                <td>
+                                    <select class="form-select form-select-sm" name="category_{{ i }}" aria-label="Category">
+                                        {% for cat in categories %}
+                                        <option value="{{ cat }}" {% if cat == item.get('category', 'Other') %}selected{% endif %}>{{ cat }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td class="text-center">
+                                    {% set confidence = item.get('confidence', 50) | int %}
+                                    {% if confidence >= 80 %}
+                                        <span class="badge bg-success" title="High confidence">{{ confidence }}%</span>
+                                    {% elif confidence >= 60 %}
+                                        <span class="badge bg-primary" title="Good confidence">{{ confidence }}%</span>
+                                    {% elif confidence >= 40 %}
+                                        <span class="badge bg-warning text-dark" title="Medium confidence">{{ confidence }}%</span>
+                                    {% else %}
+                                        <span class="badge bg-danger" title="Low confidence - please verify">{{ confidence }}%</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% set ns.i = ns.i + 1 %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
-            
+            {% endfor %}
+
             <div class="d-grid gap-2 mt-4">
                 <button type="submit" class="btn btn-primary btn-lg">Add selected items</button>
-                <a href="{{ url_for('ocr_upload') }}" class="btn btn-secondary">Cancel and scan again</a>
+                <button type="submit" name="action" value="discard" class="btn btn-secondary" formnovalidate>Discard this scan</button>
+                <a href="{{ url_for('ocr_upload') }}" class="btn btn-link">Scan more receipts</a>
             </div>
         </form>
     </div>
 </div>
 
 <script>
-    // Select/deselect all checkboxes
-    document.getElementById('select-all').addEventListener('change', function() {
-        const checkboxes = document.querySelectorAll('.item-checkbox');
-        checkboxes.forEach(cb => cb.checked = this.checked);
-    });
-    
-    // Update select-all checkbox when individual checkboxes change
-    document.querySelectorAll('.item-checkbox').forEach(cb => {
-        cb.addEventListener('change', function() {
-            const allChecked = Array.from(document.querySelectorAll('.item-checkbox')).every(cb => cb.checked);
-            document.getElementById('select-all').checked = allChecked;
-        });
+    // Per-receipt select-all checkboxes
+    document.querySelectorAll('.receipt-group').forEach(group => {
+        const all = group.querySelector('.select-group');
+        const boxes = Array.from(group.querySelectorAll('.item-checkbox'));
+        all.addEventListener('change', () => boxes.forEach(cb => { cb.checked = all.checked; }));
+        boxes.forEach(cb => cb.addEventListener('change', () => { all.checked = boxes.every(b => b.checked); }));
     });
 </script>
 {% endblock %}

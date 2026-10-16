@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block title %}Create account{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-5">
+        <div class="panel auth-panel">
+            <h1 class="mb-1">Create a household account</h1>
+            <p class="text-muted mb-4">Each household gets its own inventory, receipts, and shopping list. Passwords are stored as salted hashes, never as text.</p>
+
+            {% if error %}
+            <div class="alert alert-danger" role="alert">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="{{ url_for('register') }}" class="auth-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                    <label for="username" class="form-label">Username</label>
+                    <input type="text" class="form-control" id="username" name="username" value="{{ username or '' }}"
+                           autocomplete="username" autocapitalize="none" minlength="3" maxlength="40" required autofocus>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" name="password" autocomplete="new-password"
+                           minlength="{{ config['MIN_PASSWORD_LENGTH'] }}" required aria-describedby="password-help">
+                    <div id="password-help" class="form-text">At least {{ config['MIN_PASSWORD_LENGTH'] }} characters.</div>
+                </div>
+                <div class="mb-4">
+                    <label for="confirm" class="form-label">Confirm password</label>
+                    <input type="password" class="form-control" id="confirm" name="confirm" autocomplete="new-password" required>
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg">Create account</button>
+                </div>
+            </form>
+            <p class="small text-muted mt-4 mb-0">Already have an account? <a href="{{ url_for('login') }}">Sign in</a>.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

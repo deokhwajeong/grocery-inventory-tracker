@@ -77,3 +77,7 @@ htmlcov/
 
 # Static demo build output (scripts/build_demo.py)
 demo-dist/
+
+# Rendered receipt images (regenerate with scripts/receipt_dataset.py); the
+# ground truth JSON is committed
+datasets/receipts/images/

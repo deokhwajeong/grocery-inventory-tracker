@@ -31,6 +31,16 @@ jobs:
         # fail_under in pyproject.toml fails the job below 80% line coverage
         run: pytest -v --cov --cov-report=term --cov-report=xml
 
+      - name: Receipt OCR accuracy report
+        # Synthetic receipts (scripts/receipt_dataset.py); real receipts are never committed
+        run: |
+          python scripts/receipt_dataset.py
+          echo "### Receipt OCR accuracy (synthetic dataset)" >> "$GITHUB_STEP_SUMMARY"
+          python scripts/ocr_accuracy.py --mode ocr | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Theme contrast (WCAG AA)
+        run: python scripts/check_contrast.py
+
       - name: Coverage summary
         if: always()
         run: |

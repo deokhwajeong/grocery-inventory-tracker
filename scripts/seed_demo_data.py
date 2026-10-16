@@ -5,9 +5,12 @@ Fill the database with synthetic demo data (no real personal information).
 Dates are relative to today, so the dashboard always shows a realistic mix
 of fresh, expiring, and expired items.
 
+Items go into a household account, created if it does not exist yet.
+
 Usage:
-    python scripts/seed_demo_data.py            # add demo items
-    python scripts/seed_demo_data.py --reset    # wipe the table first
+    python scripts/seed_demo_data.py                      # account "demo", password "demo-password"
+    python scripts/seed_demo_data.py --reset              # wipe that account's items first
+    python scripts/seed_demo_data.py --user family --password "a long passphrase"
 """
 import argparse
 import os
@@ -15,6 +18,8 @@ import sys
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from werkzeug.security import generate_password_hash  # noqa: E402
 
 from app import get_db_connection, init_db  # noqa: E402
 
@@ -50,27 +55,41 @@ DEMO_ITEMS = [
     ("Tofu", 2, "Other", 5, 9, "Extra firm"),
 ]
 
-def seed(reset=False):
+def account_id(conn, username, password):
+    row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if row:
+        return row["id"]
+    cur = conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                       (username, generate_password_hash(password)))
+    print(f"Created account '{username}' (password: {password}).")
+    return cur.lastrowid
+
+
+def seed(reset=False, username="demo", password="demo-password"):
     init_db()
     today = date.today()
     conn = get_db_connection()
+    user_id = account_id(conn, username, password)
     if reset:
-        conn.execute("DELETE FROM groceries")
+        conn.execute("DELETE FROM groceries WHERE user_id = ?", (user_id,))
     for name, qty, category, bought_ago, expires_in, notes in DEMO_ITEMS:
         purchase = (today - timedelta(days=bought_ago)).isoformat()
         expiry = (today + timedelta(days=expires_in)).isoformat() if expires_in is not None else None
         conn.execute(
-            "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, qty, purchase, expiry, category, notes),
+            "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes, user_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, qty, purchase, expiry, category, notes, user_id),
         )
     conn.commit()
-    count = conn.execute("SELECT COUNT(*) FROM groceries").fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM groceries WHERE user_id = ?", (user_id,)).fetchone()[0]
     conn.close()
     print(f"Seeded demo data. Inventory now has {count} items.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--reset", action="store_true", help="delete existing items first")
-    seed(parser.parse_args().reset)
+    parser.add_argument("--reset", action="store_true", help="delete the account's existing items first")
+    parser.add_argument("--user", default="demo", help="household account to fill (created if missing)")
+    parser.add_argument("--password", default="demo-password", help="password for a newly created account")
+    args = parser.parse_args()
+    seed(args.reset, args.user, args.password)

@@ -39,8 +39,14 @@
                         </button>
                     </div>
                     <p class="small text-muted mt-2 mb-1 text-start" id="catalog-note">
-                        Lookups use a small offline catalog bundled with the app, not an online product database.
-                        Codes that are not in it can still be added by typing the details in. Try a sample code:
+                        {% if online_lookup %}
+                        Lookups check the offline catalog bundled with the app first, then Open Food Facts for real
+                        product codes. If the online lookup is unavailable, type the details in. Try a sample code:
+                        {% else %}
+                        Lookups use a small offline catalog bundled with the app. Online lookup on Open Food Facts is
+                        off (set <code>BARCODE_ONLINE_LOOKUP=true</code> to enable it), so other codes are added by
+                        typing the details in. Try a sample code:
+                        {% endif %}
                     </p>
                     <div class="d-flex flex-wrap gap-2 justify-content-start">
                         {% for product in sample_codes %}
@@ -194,7 +200,7 @@ function handleBarcodeDetection(barcode) {
             result.classList.toggle('alert-success', !!data.found);
             result.classList.toggle('alert-warning', !data.found);
             if (data.found) {
-                heading.textContent = 'Found in the local catalog';
+                heading.textContent = data.source === 'local catalog' ? 'Found in the local catalog' : 'Found on ' + data.source;
                 info.innerHTML = '<p class="mb-1"><strong>Product:</strong> <span class="pi-name"></span></p>'
                     + '<p class="mb-0"><strong>Category:</strong> <span class="pi-category"></span></p>';
                 info.querySelector('.pi-name').textContent = data.name;
@@ -208,7 +214,7 @@ function handleBarcodeDetection(barcode) {
                 // Scroll to form
                 document.getElementById('add-form').scrollIntoView({ behavior: 'smooth' });
             } else {
-                heading.textContent = data.error ? 'Not a valid barcode' : 'Not in the local catalog';
+                heading.textContent = data.error ? 'Not a valid barcode' : (data.online ? 'Product not found' : 'Not in the local catalog');
                 info.textContent = data.error || data.message || 'Please enter the product details manually.';
                 if (!data.error) document.getElementById('add-form').style.display = 'block';
             }

@@ -7,11 +7,15 @@ seeded in-memory SQLite database, then rewritten to use relative links so the
 site works from any sub-path (for example /demos/grocery/). A small script in
 demo/demo.js keeps the inventory in the browser's localStorage, so adding,
 editing, deleting, marking items as used, the shopping list, and the receipt
-review all work without a server.
+review all work without a server. Pages are rendered as a signed-in demo
+household; the sign-in and registration pages are included and accept any
+input in the demo.
 
-The receipt step uses a generated sample receipt. Its OCR results are computed
-here at build time (with Tesseract when it is installed, otherwise with the
-same text parser on the receipt's known text) and shipped as data.
+The receipt step uses three generated sample receipts (supermarket,
+convenience store, online order), so single and batch scanning can both be
+tried. Their OCR results are computed here at build time (with Tesseract when
+it is installed, otherwise with the same text parser on the receipt's known
+text) and shipped as data.
 
 Usage:
     python scripts/build_demo.py                 # writes demo-dist/
@@ -45,7 +49,7 @@ from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 import app as app_module  # noqa: E402
 import barcode_catalog  # noqa: E402
 import ocr_processor  # noqa: E402
-from ocr_advanced import get_category_suggestion  # noqa: E402
+import receipt_store  # noqa: E402
 from seed_demo_data import DEMO_ITEMS  # noqa: E402
 
 # Older purchases of things already in the fridge, so the shopping list has
@@ -56,17 +60,37 @@ HISTORY_ITEMS = [
     ("Bananas", 2, "Produce", 9, -4, "Previous bunch"),
 ]
 
-RECEIPT_STORE = "FRESH MART"
-RECEIPT_LINES = [
-    ("Chicken Breast", "8.99"),
-    ("2x Greek Yogurt", "5.98"),
-    ("Broccoli", "2.49"),
-    ("Orange Juice", "3.49"),
-    ("Cheddar Cheese", "4.29"),
-    ("Whole Wheat Bread", "3.29"),
-    ("Ground Coffee", "9.99"),
-]
-RECEIPT_DAYS_AGO = 1
+# Three sample receipts in different layouts: (store, days ago, header lines, item lines)
+W = 32
+
+
+def _row(left, right):
+    return f"{left}{' ' * max(2, W - len(left) - len(right))}{right}"
+
+
+def sample_receipts(today):
+    d1, d2, d3 = (today - timedelta(days=n) for n in (1, 2, 4))
+    return [
+        ("FRESH MART", [
+            "FRESH MART", "Store 0042  Springfield", f"{d1:%m/%d/%Y}  18:42", "",
+            _row("CHKN BRST", "8.99 F"), _row("GRK YOGURT", "5.98 F"), "  2 @ 2.99", _row("BROCCOLI", "2.49 F"),
+            _row("OJ NO PULP", "3.49 F"), _row("CHDR CHS", "4.29 F"), _row("WHL WHT BRD", "3.29 F"),
+            _row("GRND COFFEE", "9.99 F"), "",
+            _row("SUBTOTAL", "38.52"), _row("TAX", "0.00"), _row("TOTAL", "38.52"), "VISA ************1234", "THANK YOU",
+        ]),
+        ("CORNER MART 24HR", [
+            "CORNER MART 24HR", "STORE 2214  REG 1", f"DATE {d2:%Y-%m-%d} TIME 08:15", "",
+            _row("QTY ITEM", "AMOUNT"), _row("2  BANANAS", "1.38"), _row("1  WHOLE MILK", "3.79"),
+            _row("1  LG EGGS", "3.59"), "", _row("SUBTOTAL", "8.76"), _row("TAX", "0.00"), _row("TOTAL", "8.76"),
+            "CASH 10.00", _row("CHANGE DUE", "1.24"),
+        ]),
+        ("BASKETBOX ONLINE", [
+            "BASKETBOX ONLINE", "Order #318-2207741", f"Delivered {d3:%b} {d3.day}, {d3.year}", "",
+            "Baby Spinach", _row("  Qty 1", "$3.99"), "Sourdough Bread", _row("  Qty 1", "$4.49"),
+            "Sparkling Water", _row("  Qty 2 x $4.99", "$9.98"), "Frozen Peas", _row("  Qty 3 x $1.99", "$5.97"), "",
+            _row("Delivery fee", "$3.99"), _row("TOTAL", "$28.42"), "Thanks for your order!",
+        ]),
+    ]
 
 # Flask route -> static file name
 PAGES = {
@@ -78,7 +102,11 @@ PAGES = {
     "/statistics": "statistics.html",
     "/settings": "settings.html",
     "/barcode": "barcode.html",
+    "/receipts": "receipts.html",
+    "/login": "login.html",
+    "/register": "register.html",
 }
+SIGNED_OUT_PAGES = {"/login", "/register"}
 
 MEMORY_URI = "file:grocery-demo?mode=memory&cache=shared"
 
@@ -98,14 +126,16 @@ def use_in_memory_db():
 
 
 def seed(today):
+    """Create the demo household and its items. Returns (user id, item rows for demo-data.js)."""
     rows = []
     conn = app_module.get_db_connection()
+    user_id = conn.execute("INSERT INTO users (username, password_hash) VALUES ('demo', '!')").lastrowid
     for name, qty, category, bought_ago, expires_in, notes in DEMO_ITEMS + HISTORY_ITEMS:
         purchase = today - timedelta(days=bought_ago)
         expiry = today + timedelta(days=expires_in) if expires_in is not None else None
         conn.execute(
-            "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes) VALUES (?, ?, ?, ?, ?, ?)",
-            (name, qty, purchase.isoformat(), expiry.isoformat() if expiry else None, category, notes),
+            "INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, qty, purchase.isoformat(), expiry.isoformat() if expiry else None, category, notes, user_id),
         )
         rows.append({
             "name": name, "quantity": qty, "category": category, "notes": notes,
@@ -113,62 +143,43 @@ def seed(today):
         })
     conn.commit()
     conn.close()
-    return rows
-
-
-def receipt_text(today):
-    purchase = (today - timedelta(days=RECEIPT_DAYS_AGO)).isoformat()
-    lines = [RECEIPT_STORE, "Store 0042  Springfield", f"Date: {purchase}", ""]
-    lines += [f"{name} ${price}" for name, price in RECEIPT_LINES]
-    subtotal = sum(float(price) for _, price in RECEIPT_LINES)
-    lines += ["", f"SUBTOTAL ${subtotal:.2f}", "TAX $0.00", f"TOTAL ${subtotal:.2f}", "VISA PAID", "THANK YOU"]
-    return lines
+    return user_id, rows
 
 
 def draw_receipt(lines, path):
     """Render a receipt image the same way the OCR test does (dark text on white)."""
-    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+    bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
     font = ImageFont.truetype(font_path, 22) if os.path.exists(font_path) else ImageFont.load_default()
-    bold = ImageFont.truetype(bold_path, 28) if os.path.exists(bold_path) else font
-    width, line_h = 520, 42
+    bold = ImageFont.truetype(bold_path, 26) if os.path.exists(bold_path) else font
+    width, line_h = 500, 36
     img = Image.new("RGB", (width, 60 + line_h * len(lines) + 40), "white")
     draw = ImageDraw.Draw(img)
     y = 40
     for i, line in enumerate(lines):
         if line:
             f = bold if i == 0 else font
-            x = (width - draw.textlength(line, font=f)) / 2 if i < 3 or line == "THANK YOU" else 40
+            x = (width - draw.textlength(line, font=f)) / 2 if i < 3 or line.startswith("THANK") else 30
             draw.text((x, y), line, fill="black", font=f)
         y += line_h
     img.save(path, optimize=True)
 
 
-def precompute_ocr(image_path, lines, today):
-    items, source = [], "Tesseract OCR"
+def precompute_ocr(image_path, lines):
+    """OCR one sample receipt. Returns (analysis dict, engine name)."""
+    expected = ocr_processor.parse_receipt("\n".join(lines))
+    result, engine = None, "tesseract"
     if ocr_processor.is_tesseract_available():
         try:
-            items = ocr_processor.process_receipt_image(image_path, "eng")
+            result = ocr_processor.analyze_receipt_image(image_path, "eng")
         except Exception as exc:  # fall back to the text parser below
             print(f"OCR failed ({exc}); using the text parser instead.")
-    if len(items) < len(RECEIPT_LINES) // 2:
-        source = "the receipt text parser (Tesseract unavailable)"
-        text = ocr_processor.post_process_ocr_text("\n".join(lines))
-        items = ocr_processor.parse_receipt_text(text)
-        for item in items:
-            item.setdefault("category", get_category_suggestion(item["name"]))
-    print(f"Receipt items precomputed with {source}.")
-    purchase = (today - timedelta(days=RECEIPT_DAYS_AGO)).isoformat()
-    cleaned = []
-    for item in items:
-        cleaned.append({
-            "name": item["name"],
-            "quantity": int(item.get("quantity") or 1),
-            "purchase_date": item.get("purchase_date") or purchase,
-            "category": item.get("category") or "Other",
-            "confidence": int(item.get("confidence", 50)),
-        })
-    return cleaned, ("tesseract" if source == "Tesseract OCR" else "parser")
+    if not result or len(result["items"]) < len(expected["items"]) - 1:
+        result, engine = expected, "parser"
+    keep = ("name", "raw_name", "quantity", "price", "discount", "purchase_date", "category", "confidence")
+    result["items"] = [{k: (int(v) if k == "confidence" else v) for k, v in item.items() if k in keep}
+                       for item in result["items"]]
+    return result, engine
 
 
 def to_relative(url):
@@ -182,6 +193,13 @@ def to_relative(url):
         return f"edit.html?id={match.group(1)}"
     if re.fullmatch(r"/(delete|use)/\d+", path):
         return "index.html"
+    match = re.fullmatch(r"/receipts/(\d+)/image", path)
+    if match:
+        return f"static/demo/sample-receipt-{match.group(1)}.png"
+    if re.fullmatch(r"/receipts/\d+/delete", path):
+        return "receipts.html"
+    if path == "/logout":
+        return "login.html"
     if path in PAGES:
         return PAGES[path] + query
     raise ValueError(f"No static mapping for {url}")
@@ -224,7 +242,7 @@ def build(out_dir):
     today = date.today()
     keepalive = use_in_memory_db()
     app_module.is_tesseract_available = lambda: True  # show the upload form, not the "OCR unavailable" notice
-    seed_rows = seed(today)
+    user_id, seed_rows = seed(today)
 
     if os.path.exists(out_dir):
         shutil.rmtree(out_dir)
@@ -235,22 +253,38 @@ def build(out_dir):
     for name in ("demo.js", "demo.css"):
         shutil.copy(os.path.join(ROOT, "demo", name), demo_static)
 
-    lines = receipt_text(today)
-    receipt_path = os.path.join(demo_static, "sample-receipt.png")
-    draw_receipt(lines, receipt_path)
-    with Image.open(receipt_path) as img:
-        receipt_size = img.size
-    ocr_items, ocr_engine = precompute_ocr(receipt_path, lines, today)
+    # Scan the sample receipts and store them as pending receipts of the demo household.
+    receipts, engines = [], set()
+    conn = app_module.get_db_connection()
+    for n, (store, lines) in enumerate(sample_receipts(today), start=1):
+        image = os.path.join(demo_static, f"sample-receipt-{n}.png")
+        draw_receipt(lines, image)
+        result, engine = precompute_ocr(image, lines)
+        engines.add(engine)
+        rid = receipt_store.create(conn, user_id, result, f"sample-receipt-{n}.png", f"sample-receipt-{n}.png")
+        assert rid == n
+        with Image.open(image) as img:
+            size = img.size
+        receipts.append({"id": rid, "store": store, "image": f"static/demo/sample-receipt-{n}.png", "engine": engine,
+                         "width": size[0], "height": size[1], "items": len(result["items"]),
+                         "seconds": round(result.get("ocr_seconds") or 0.4, 2)})
+    conn.commit()
+    conn.close()
+    print(f"Sample receipts read with: {', '.join(sorted(engines))}.")
 
     first_id = app_module.get_db_connection().execute("SELECT MIN(id) FROM groceries").fetchone()[0]
+    all_ids = ",".join(str(r["id"]) for r in receipts)
     routes = dict(PAGES)
     routes[f"/edit/{first_id}"] = "edit.html"
+    routes[f"/ocr/review?receipts={all_ids}"] = routes.pop("/ocr/review")
 
     app_module.app.config["TESTING"] = True
     with app_module.app.test_client() as client:
-        with client.session_transaction() as sess:
-            sess["ocr_items"] = ocr_items
         for route, filename in routes.items():
+            with client.session_transaction() as sess:
+                sess.clear()
+                if route not in SIGNED_OUT_PAGES:
+                    sess["user_id"] = user_id
             response = client.get(route)
             assert response.status_code == 200, f"{route} returned {response.status_code}"
             page = filename.removesuffix(".html")
@@ -265,13 +299,7 @@ def build(out_dir):
         "mergeWindowDays": app_module.app.config["MERGE_EXPIRY_WINDOW_DAYS"],
         "barcodes": list(barcode_catalog.CATALOG.values()),
         "items": seed_rows,
-        "receipt": {
-            "image": "static/demo/sample-receipt.png",
-            "engine": ocr_engine,
-            "width": receipt_size[0],
-            "height": receipt_size[1],
-            "items": ocr_items,
-        },
+        "receipts": receipts,
     }
     with open(os.path.join(demo_static, "demo-data.js"), "w", encoding="utf-8") as fh:
         fh.write("// Generated by scripts/build_demo.py. Synthetic demo data only.\n")
@@ -280,7 +308,8 @@ def build(out_dir):
 
     keepalive.close()
     shutil.rmtree(_tmpdir, ignore_errors=True)
-    print(f"Demo built in {out_dir}: {len(routes)} pages, {len(seed_rows)} items, {len(ocr_items)} receipt items.")
+    n_items = sum(r["items"] for r in receipts)
+    print(f"Demo built in {out_dir}: {len(routes)} pages, {len(seed_rows)} items, {len(receipts)} receipts ({n_items} items).")
 
 
 if __name__ == "__main__":

@@ -100,14 +100,13 @@ def test_merge_caps_quantity(db):
     assert result.merged and result.quantity == 10000
 
 
-def test_receipt_review_merges_with_existing_stock(client, db):
+def test_receipt_review_merges_with_existing_stock(client, db, pending_receipt):
     add_form(client, "Orange Juice", qty="1", category="Beverages")
-    with client.session_transaction() as sess:
-        sess["ocr_items"] = [
-            {"name": "Orange Juice", "quantity": 1, "purchase_date": iso(0), "category": "Beverages", "confidence": 90},
-            {"name": "Broccoli", "quantity": 1, "purchase_date": iso(0), "category": "Produce", "confidence": 90},
-        ]
-    response = client.post("/ocr/review", data={
+    rid = pending_receipt([
+        {"name": "Orange Juice", "quantity": 1, "purchase_date": iso(0), "category": "Beverages", "confidence": 90},
+        {"name": "Broccoli", "quantity": 1, "purchase_date": iso(0), "category": "Produce", "confidence": 90},
+    ])
+    response = client.post(f"/ocr/review?receipts={rid}", data={
         "selected": ["0", "1"],
         "name_0": "Orange Juice", "quantity_0": "2", "purchase_date_0": iso(0), "category_0": "Beverages",
         "name_1": "Broccoli", "quantity_1": "1", "purchase_date_1": iso(0), "category_1": "Produce",

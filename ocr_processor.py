@@ -1,175 +1,147 @@
 """
-OCR Processing Module for Grocery Inventory Tracker
-Handles receipt image preprocessing, text extraction, and item parsing.
-Advanced version with multi-stage preprocessing and intelligent parsing.
+OCR pipeline for receipt images: OpenCV preprocessing, Tesseract, then the
+text parser in receipt_parser.py and the name normalizer in ocr_advanced.py.
+
+Speed: the image is rescaled so its letters are a size Tesseract reads well
+(close-up phone photos are shrunk, small crops are enlarged), and OCR runs in
+passes. The first
+pass is one Tesseract call on a contrast-enhanced image. If its text already
+looks like a receipt (several "name ... price" lines and a total), that result
+is used. Otherwise the remaining preprocessing and page-layout combinations run
+in parallel and the best-scoring text wins. scripts/ocr_accuracy.py --mode ocr
+reports the resulting time per receipt.
 """
-import re
 import logging
-from datetime import datetime
-from typing import List, Dict, Tuple, Optional
-import pytesseract
+import os
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Dict, List, Optional, Tuple
+
 import cv2
 import numpy as np
+import pytesseract
 
-# Import advanced OCR features
-try:
-    from ocr_advanced import (
-        detect_receipt_type,
-        extract_store_info,
-        merge_duplicate_items,
-        validate_and_fix_items,
-        analyze_receipt_quality,
-        get_category_suggestion
-    )
-    ADVANCED_FEATURES = True
-except ImportError:
-    ADVANCED_FEATURES = False
-    logging.warning("Advanced OCR features not available")
+import receipt_parser
+from ocr_advanced import (
+    analyze_receipt_quality,
+    detect_receipt_type,
+    extract_store_info,
+    get_category_suggestion,
+    merge_duplicate_items,
+    validate_and_fix_items,
+)
 
-# Setup logging
 logger = logging.getLogger(__name__)
 
+# Tesseract is fastest and most accurate when capital letters are roughly
+# 20 to 40 pixels tall. Huge glyphs (a close-up phone photo) make it very slow
+# and tiny ones make it miss characters, so the image is rescaled until the
+# typical glyph height falls in this range.
+TARGET_GLYPH_HEIGHT = 28
+GLYPH_HEIGHT_RANGE = (22, 44)
+MAX_SIDE = 4000          # never hand Tesseract more than this many pixels on a side
+TESSERACT_TIMEOUT = 20   # seconds per Tesseract call; a stuck pass is abandoned
 
-def preprocess_image(image_path: str) -> List[np.ndarray]:
-    """
-    Advanced preprocessing with multiple strategies for improved OCR accuracy.
-    Returns multiple preprocessed versions for better text extraction.
 
-    Args:
-        image_path (str): Path to the receipt image file
+def estimate_glyph_height(gray: np.ndarray) -> Optional[float]:
+    """Median height (pixels) of character-sized blobs, or None if there is no text-like content."""
+    scale = 1.0
+    if max(gray.shape) > 1600:  # estimate on a smaller copy for speed
+        scale = 1600 / max(gray.shape)
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    _, bw = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    _, _, stats, _ = cv2.connectedComponentsWithStats(bw, connectivity=8)
+    h, w = stats[1:, cv2.CC_STAT_HEIGHT], stats[1:, cv2.CC_STAT_WIDTH]
+    keep = (h >= 4) & (h <= gray.shape[0] / 8) & (w <= h * 2.5) & (w >= 2)
+    if keep.sum() < 10:
+        return None
+    return float(np.median(h[keep])) / scale
 
-    Returns:
-        List[np.ndarray]: Multiple preprocessed image versions
 
-    Raises:
-        Exception: If image cannot be read or processed
-    """
-    try:
-        # Read image
-        img = cv2.imread(image_path)
-
-        if img is None:
-            raise ValueError(f"Failed to read image from {image_path}")
-
-        processed_images = []
-
-        # 1. Auto-rotation correction using deskew
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = deskew_image(gray)
-
-        # 2. Contrast enhancement
-        enhanced = enhance_contrast(gray)
-        processed_images.append(enhanced)
-
-        # 3. Adaptive thresholding (good for uneven lighting)
-        adaptive = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 11, 2
-        )
-        processed_images.append(adaptive)
-
-        # 4. Otsu's thresholding (good for bimodal images)
-        _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        denoised_otsu = cv2.fastNlMeansDenoising(otsu)
-        processed_images.append(denoised_otsu)
-
-        # 5. Morphological operations for text enhancement
-        kernel = np.ones((1, 1), np.uint8)
-        morph = cv2.morphologyEx(denoised_otsu, cv2.MORPH_CLOSE, kernel)
-        processed_images.append(morph)
-
-        # 6. Sharpening for blurry images
-        sharpened = sharpen_image(gray)
-        processed_images.append(sharpened)
-
-        logger.debug(f"Generated {len(processed_images)} preprocessed versions")
-        return processed_images
-
-    except Exception as e:
-        logger.error(f"Image preprocessing error for {image_path}: {e}")
-        raise
+def load_grayscale(image_path: str) -> np.ndarray:
+    """Read an image as grayscale, rescaled so text has a Tesseract-friendly size, and deskewed."""
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise ValueError(f"Failed to read image from {image_path}")
+    factor = 1.0
+    glyph = estimate_glyph_height(img)
+    if glyph and not (GLYPH_HEIGHT_RANGE[0] <= glyph <= GLYPH_HEIGHT_RANGE[1]):
+        factor = TARGET_GLYPH_HEIGHT / glyph
+    factor = min(factor, MAX_SIDE / max(img.shape))
+    if abs(factor - 1.0) > 0.05:
+        interpolation = cv2.INTER_AREA if factor < 1 else cv2.INTER_CUBIC
+        img = cv2.resize(img, None, fx=factor, fy=factor, interpolation=interpolation)
+        logger.debug(f"Rescaled by {factor:.2f} (glyph height {glyph})")
+    return deskew_image(img)
 
 
 def deskew_image(image: np.ndarray) -> np.ndarray:
-    """
-    Detect and correct skewed text in receipt images.
-
-    Args:
-        image (np.ndarray): Grayscale input image
-
-    Returns:
-        np.ndarray: Deskewed image
-    """
+    """Rotate the image so text lines are horizontal (no-op when already straight)."""
     try:
-        # Detect edges
         edges = cv2.Canny(image, 50, 150, apertureSize=3)
-
-        # Detect lines using Hough transform
         lines = cv2.HoughLines(edges, 1, np.pi / 180, 200)
-
-        if lines is not None:
-            # Calculate average angle
-            angles = []
-            for rho, theta in lines[:, 0]:
-                angle = np.degrees(theta) - 90
-                if abs(angle) < 45:  # Only consider reasonable angles
-                    angles.append(angle)
-
-            if angles:
-                median_angle = np.median(angles)
-
-                # Only rotate if angle is significant
-                if abs(median_angle) > 0.5:
-                    (h, w) = image.shape
-                    center = (w // 2, h // 2)
-                    M = cv2.getRotationMatrix2D(center, median_angle, 1.0)
-                    rotated = cv2.warpAffine(
-                        image, M, (w, h),
-                        flags=cv2.INTER_CUBIC,
-                        borderMode=cv2.BORDER_REPLICATE
-                    )
-                    logger.debug(f"Image deskewed by {median_angle:.2f} degrees")
-                    return rotated
-
-        return image
-
-    except Exception as e:
+        if lines is None:
+            return image
+        angles = [np.degrees(theta) - 90 for _, theta in lines[:, 0] if abs(np.degrees(theta) - 90) < 45]
+        if not angles:
+            return image
+        median_angle = float(np.median(angles))
+        if abs(median_angle) <= 0.5:
+            return image
+        h, w = image.shape
+        matrix = cv2.getRotationMatrix2D((w // 2, h // 2), median_angle, 1.0)
+        logger.debug(f"Image deskewed by {median_angle:.2f} degrees")
+        return cv2.warpAffine(image, matrix, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    except cv2.error as e:  # pragma: no cover - defensive
         logger.warning(f"Deskewing failed: {e}, returning original")
         return image
 
 
 def enhance_contrast(image: np.ndarray) -> np.ndarray:
-    """
-    Enhance image contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization).
+    """CLAHE contrast enhancement (handles uneven lighting without hard thresholds)."""
+    return cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(image)
 
-    Args:
-        image (np.ndarray): Grayscale input image
 
-    Returns:
-        np.ndarray: Contrast-enhanced image
-    """
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(image)
-    return enhanced
+def otsu_threshold(image: np.ndarray) -> np.ndarray:
+    blurred = cv2.medianBlur(image, 3)
+    return cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+
+def adaptive_threshold(image: np.ndarray) -> np.ndarray:
+    return cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10)
 
 
 def sharpen_image(image: np.ndarray) -> np.ndarray:
-    """
-    Sharpen image to improve OCR on blurry receipts.
-
-    Args:
-        image (np.ndarray): Grayscale input image
-
-    Returns:
-        np.ndarray: Sharpened image
-    """
-    kernel = np.array([[-1, -1, -1],
-                       [-1,  9, -1],
-                       [-1, -1, -1]])
-    sharpened = cv2.filter2D(image, -1, kernel)
-    return sharpened
+    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+    return cv2.filter2D(image, -1, kernel)
 
 
+VARIANTS: Dict[str, Callable[[np.ndarray], np.ndarray]] = {
+    "contrast": enhance_contrast,
+    "otsu": otsu_threshold,
+    "adaptive": adaptive_threshold,
+    "sharpen": sharpen_image,
+}
+
+# (variant, Tesseract config). The first entry is the fast path.
+# Order chosen with scripts/ocr_accuracy.py: Otsu + "uniform block" (psm 6)
+# read the most items on its own; the others rescue images it struggles with.
+OCR_PASSES: List[Tuple[str, str]] = [
+    ("otsu", "--oem 1 --psm 6"),
+    ("contrast", "--oem 1 --psm 4"),
+    ("sharpen", "--oem 1 --psm 6"),
+    ("otsu", "--oem 1 --psm 4"),
+]
+
+
+def preprocess_image(image_path: str) -> List[np.ndarray]:
+    """All preprocessed versions of the receipt, in OCR_PASSES variant order (kept for callers and tests)."""
+    gray = load_grayscale(image_path)
+    return [fn(gray) for fn in VARIANTS.values()]
+
+
+# ---------------------------------------------------------------- Tesseract
 
 def is_tesseract_available() -> bool:
     """Return True if the Tesseract binary can be found and executed."""
@@ -180,24 +152,22 @@ def is_tesseract_available() -> bool:
         return False
 
 
-def count_item_lines(text: str) -> int:
-    """Count lines that look like a receipt item: letters followed by a price."""
-    return sum(
-        1 for line in text.splitlines()
-        if re.search(r'[A-Za-z]{2,}.*\d+[.,]\d{2}\s*$', line.strip())
-    )
+_installed_languages: Optional[set] = None
 
 
 def resolve_languages(languages: str) -> str:
     """
-    Keep only the requested Tesseract languages that are actually installed.
-    Tesseract fails outright if any requested language pack is missing
-    (e.g. 'eng+kor' without tesseract-ocr-kor), so fall back gracefully.
+    Keep only the requested Tesseract languages that are installed. Tesseract
+    fails outright if a requested language pack is missing (for example
+    'eng+kor' without tesseract-ocr-kor), so fall back gracefully.
     """
-    try:
-        installed = set(pytesseract.get_languages(config=''))
-    except Exception:
-        return languages
+    global _installed_languages
+    if _installed_languages is None:
+        try:
+            _installed_languages = set(pytesseract.get_languages(config=''))
+        except Exception:
+            return languages
+    installed = _installed_languages
     wanted = [lang for lang in languages.split('+') if lang in installed]
     if not wanted:
         wanted = ['eng'] if 'eng' in installed else sorted(installed)[:1]
@@ -207,456 +177,201 @@ def resolve_languages(languages: str) -> str:
     return resolved
 
 
-def extract_text_from_image(image_path: str, languages: str = 'eng+kor') -> str:
-    """
-    Extract text from receipt using multiple preprocessing strategies and OCR configurations.
-    Combines results from different approaches for best accuracy.
+def count_item_lines(text: str) -> int:
+    """Count lines that look like a receipt item: letters followed by a price."""
+    return sum(1 for line in text.splitlines() if re.search(r'[A-Za-z]{2,}.*\d+[.,]\d{2}\s*[A-Z]?\s*$', line.strip()))
 
-    Args:
-        image_path (str): Path to the receipt image file
-        languages (str): OCR language codes (default: 'eng+kor')
 
-    Returns:
-        str: Extracted text from the image
-    """
+def text_score(text: str) -> Tuple[int, int, int]:
+    """Rank OCR outputs: item-like lines first, then a found total, then length."""
+    has_total = int(bool(re.search(r'\btotal\b', text, re.I)))
+    return count_item_lines(text), has_total, len(text)
+
+
+def looks_complete(text: str) -> bool:
+    """True when a pass already produced a plausible receipt, so the slower passes can be skipped."""
+    items, has_total, _ = text_score(text)
+    return items >= 2 and has_total == 1
+
+
+def _run_tesseract(image: np.ndarray, languages: str, config: str) -> str:
     try:
-        if not is_tesseract_available():
-            raise pytesseract.TesseractNotFoundError()
-        languages = resolve_languages(languages)
-
-        # Get multiple preprocessed versions
-        processed_images = preprocess_image(image_path)
-
-        # Different Tesseract configurations for various receipt types
-        configs = [
-            '--psm 6',  # Assume uniform block of text
-            '--psm 4',  # Assume single column of text
-            '--psm 11', # Sparse text, find as much text as possible
-            '--oem 3 --psm 6',  # LSTM + Legacy engine
-        ]
-
-        best_text = ""
-        best_score = (-1, -1)
-
-        # Try each preprocessed image with different configs
-        for idx, img in enumerate(processed_images):
-            for config in configs:
-                try:
-                    text = pytesseract.image_to_string(
-                        img,
-                        lang=languages,
-                        config=config
-                    )
-
-                    # Prefer the result with the most "name ... price" lines,
-                    # then the most text. Picking purely by length favoured
-                    # sparse modes that split names and prices onto separate lines.
-                    score = (count_item_lines(text), len(text))
-                    if score > best_score:
-                        best_score = score
-                        best_text = text
-                        logger.debug(f"Better result from image variant {idx}, config: {config}")
-
-                except Exception as e:
-                    logger.warning(f"OCR attempt failed with config {config}: {e}")
-                    continue
-
-        # Post-process text
-        best_text = post_process_ocr_text(best_text)
-
-        logger.info(f"OCR text extracted: {len(best_text)} characters (from {len(processed_images)} variants)")
-        logger.debug(f"Extracted text preview: {best_text[:200]}...")
-
-        return best_text
-
+        return pytesseract.image_to_string(image, lang=languages, config=config, timeout=TESSERACT_TIMEOUT)
     except pytesseract.TesseractNotFoundError:
-        logger.error("Tesseract OCR not found. Please install Tesseract.")
         raise
-
+    except RuntimeError as e:  # pytesseract raises RuntimeError on timeout
+        logger.warning(f"OCR pass {config} gave up after {TESSERACT_TIMEOUT}s: {e}")
+        return ""
     except Exception as e:
-        logger.error(f"OCR extraction error: {e}")
+        logger.warning(f"OCR attempt failed with config {config}: {e}")
         return ""
 
 
-def post_process_ocr_text(text: str) -> str:
+def extract_text_from_image(image_path: str, languages: str = 'eng+kor', passes: Optional[List[Tuple[str, str]]] = None,
+                            stats: Optional[Dict] = None) -> str:
     """
-    Clean up OCR output by fixing common errors and normalizing text.
+    Extract receipt text with as few Tesseract calls as the image allows.
 
     Args:
-        text (str): Raw OCR text
+        image_path: path to the receipt image
+        languages: Tesseract language codes ('eng+kor' falls back to what is installed)
+        passes: override OCR_PASSES (used by the benchmark)
+        stats: optional dict that receives timing and pass counts
 
     Returns:
-        str: Cleaned text
+        Cleaned OCR text ('' on failure). Raises TesseractNotFoundError if
+        Tesseract is missing.
     """
-    # Common OCR misreads corrections
-    corrections = {
-        'О': '0',  # Cyrillic O to zero
-        'о': '0',
-        'І': '1',  # Cyrillic I to one
-        'і': '1',
-        'ㅇ': '0',  # Korean O character to zero
-        '○': '0',  # Circle to zero
-        'ㅣ': '1',  # Korean I character to one
-    }
+    if not is_tesseract_available():
+        raise pytesseract.TesseractNotFoundError()
+    languages = resolve_languages(languages)
+    passes = passes or OCR_PASSES
+    started = time.perf_counter()
+    try:
+        gray = load_grayscale(image_path)
+    except Exception as e:
+        logger.error(f"Image preprocessing error for {image_path}: {e}")
+        return ""
+    prepared = time.perf_counter()
 
+    cache: Dict[str, np.ndarray] = {}
+
+    def image_for(variant: str) -> np.ndarray:
+        if variant not in cache:
+            cache[variant] = VARIANTS[variant](gray)
+        return cache[variant]
+
+    first_variant, first_config = passes[0]
+    best = _run_tesseract(image_for(first_variant), languages, first_config)
+    used = 1
+    if not looks_complete(best) and len(passes) > 1:
+        rest = passes[1:]
+        for variant, _ in rest:
+            image_for(variant)
+        # Tesseract runs as a subprocess, so threads give real parallelism.
+        workers = max(1, min(len(rest), (os.cpu_count() or 2) - 1, 3))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(lambda p: _run_tesseract(cache[p[0]], languages, p[1]), rest))
+        used += len(rest)
+        for text in results:
+            if text_score(text) > text_score(best):
+                best = text
+
+    best = post_process_ocr_text(best)
+    if stats is not None:
+        stats.update({"passes": used, "preprocess_s": prepared - started, "total_s": time.perf_counter() - started})
+    logger.info(f"OCR text extracted: {len(best)} characters in {used} pass(es), "
+                f"{time.perf_counter() - started:.2f}s")
+    return best
+
+
+def post_process_ocr_text(text: str) -> str:
+    """Fix common OCR misreads and normalize whitespace, keeping one receipt line per line."""
+    corrections = {
+        'О': 'O', 'о': 'o', 'І': 'I', 'і': 'i',  # Cyrillic look-alikes
+        'ㅇ': '0', '○': '0', 'ㅣ': '1',
+        '\u2014': '-', '\u2013': '-', '\u2019': "'", '\u2018': "'",  # long dashes and curly quotes
+    }
     for wrong, correct in corrections.items():
         text = text.replace(wrong, correct)
-
-    # Normalize whitespace within each line but keep line breaks:
-    # parse_receipt_text() relies on one receipt item per line.
     lines = (re.sub(r'[ \t\f\v]+', ' ', line).strip() for line in text.splitlines())
     text = '\n'.join(line for line in lines if line)
-
-    # Remove excessive special characters
     text = re.sub(r'[|]{2,}', '|', text)
     text = re.sub(r'[-]{3,}', '-', text)
-
     return text
 
 
+# ---------------------------------------------------------------- parsing
 
-def extract_dates_from_text(text: str) -> Optional[str]:
-    """
-    Advanced date extraction with multiple format support and validation.
-
-    Args:
-        text (str): Text containing potential dates
-
-    Returns:
-        Optional[str]: Extracted date in YYYY-MM-DD format or None
-    """
-    # Comprehensive date patterns
-    date_patterns = [
-        # Dot-separated format: 2024.01.15, 2024. 1. 15
-        (r'(\d{4})[.\s]*(\d{1,2})[.\s]*(\d{1,2})', 'ymd'),
-        # ISO style: 2024-01-15, 2024/01/15
-        (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', 'ymd'),
-        # US style: 01/15/2024, 01-15-2024
-        (r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', 'mdy'),
-        # European style: 15/01/2024, 15-01-2024
-        (r'(\d{1,2})[-/](\d{1,2})[-/](\d{4})', 'dmy'),
-        # Short year: 24.01.15
-        (r'(\d{2})[.\s]*(\d{1,2})[.\s]*(\d{1,2})', 'ymd_short'),
-        # Korean romanized date format: 2024nyeon 1wol 15il
-        (r'(\d{4})\s*nyeon\s*(\d{1,2})\s*wol\s*(\d{1,2})\s*il', 'ymd'),
-    ]
-
-    current_year = datetime.now().year
-
-    for pattern, format_type in date_patterns:
-        matches = re.finditer(pattern, text)
-
-        for match in matches:
-            try:
-                groups = match.groups()
-
-                if format_type == 'ymd':
-                    year, month, day = groups
-                    year = int(year)
-                elif format_type == 'ymd_short':
-                    year, month, day = groups
-                    year = int(year)
-                    # Convert 2-digit year to 4-digit
-                    year = 2000 + year if year < 100 else year
-                elif format_type == 'mdy':
-                    month, day, year = groups
-                    year = int(year)
-                elif format_type == 'dmy':
-                    day, month, year = groups
-                    year = int(year)
-                else:
-                    continue
-
-                month = int(month)
-                day = int(day)
-
-                # Validation
-                if not (1 <= month <= 12 and 1 <= day <= 31):
-                    continue
-
-                # Year should be reasonable (within 1 year past or future)
-                if not (current_year - 1 <= year <= current_year + 1):
-                    continue
-
-                # Validate actual date
-                date_str = f"{year}-{month:02d}-{day:02d}"
-                datetime.strptime(date_str, '%Y-%m-%d')
-
-                logger.debug(f"Date extracted: {date_str}")
-                return date_str
-
-            except (ValueError, TypeError) as e:
-                logger.debug(f"Invalid date candidate: {match.group()} - {e}")
-                continue
-
-    # Default to today if no date found
-    logger.debug("No valid date found, using today's date")
-    return datetime.now().strftime('%Y-%m-%d')
+def extract_dates_from_text(text: str, day_first: bool = False) -> str:
+    """Purchase date as YYYY-MM-DD, or today's date when the receipt has none."""
+    return receipt_parser.find_receipt_date(text, day_first=day_first) or receipt_parser.today_iso()
 
 
 def extract_quantity_and_price(line: str) -> Tuple[int, Optional[str]]:
-    """
-    Extract quantity and price from a receipt line.
-
-    Args:
-        line (str): Single line from receipt
-
-    Returns:
-        Tuple[int, Optional[str]]: (quantity, price) or (1, None)
-    """
-    quantity = 1
-    price = None
-
-    # Quantity patterns: 2x, 3X, 5×, 2ea, x2, *2
-    quantity_patterns = [
-        r'(\d+)\s*[xX×*]\s*',      # 2x, 3X
-        r'[xX×*]\s*(\d+)',           # x2, *2
-        r'(\d+)\s*gae',              # 2gae (romanized Korean: ea/pieces)
-        r'(\d+)\s*EA',               # 2EA
-    ]
-
-    for pattern in quantity_patterns:
-        match = re.search(pattern, line)
-        if match:
-            try:
-                qty = int(match.group(1))
-                if 1 <= qty <= 100:  # Reasonable range
-                    quantity = qty
-                    break
-            except (ValueError, IndexError):
-                continue
-
-    # Price patterns: ₩1,000, $5.99, 1000won, 5,000
-    price_patterns = [
-        r'₩\s*([\d,]+\.?\d*)',       # ₩1,000
-        r'\$\s*([\d,]+\.?\d*)',       # $5.99
-        r'([\d,]+)\s*won',            # 1000won (Korean currency)
-        r'([\d,]+\.?\d*)\s*$',        # 1,000 at end of line
-    ]
-
-    for pattern in price_patterns:
-        match = re.search(pattern, line)
-        if match:
-            price = match.group(1).replace(',', '')
-            break
-
-    return quantity, price
+    """Quantity and line price from a single receipt line, e.g. '2x Milk $5.98' -> (2, '5.98')."""
+    if receipt_parser.PRICE_AT_END.search(line):
+        parts = receipt_parser._split_item_line(line, "unknown")
+        if parts:
+            _, qty, price = parts
+            return qty, None if price is None else f"{price:.2f}"
+    q = receipt_parser.QTY_AT.match(line)
+    if q:
+        return int(q["qty"]), f"{receipt_parser.to_amount(q['unit']) * int(q['qty']):.2f}"
+    return 1, None
 
 
 def calculate_confidence_score(item: Dict) -> float:
+    return receipt_parser.calculate_confidence(item)
+
+
+def parse_receipt_text(text: str, receipt_type: Optional[str] = None, purchase_date: Optional[str] = None) -> List[Dict]:
     """
-    Calculate confidence score for parsed item (0-100).
+    Parse receipt text into raw items (before name normalization), in receipt order.
 
-    Args:
-        item (Dict): Parsed item dictionary
-
-    Returns:
-        float: Confidence score
+    Each item has name, quantity, price (line total as a string), unit_price,
+    purchase_date and confidence, plus discount or weight when printed.
     """
-    score = 50.0  # Base score
-
-    # Item name quality
-    name = item.get('name', '')
-    if len(name) >= 3:
-        score += 10
-    if len(name) >= 5:
-        score += 10
-
-    # Has romanized Korean text (common patterns)
-    if re.search(r'(gae|won|nyeon|wol)', name, re.IGNORECASE):
-        score += 10
-
-    # Has English characters
-    if re.search(r'[a-zA-Z]', name):
-        score += 5
-
-    # Quantity is reasonable
-    qty = item.get('quantity', 1)
-    if 1 <= qty <= 10:
-        score += 10
-    elif qty > 100:
-        score -= 20
-
-    # Has valid date
-    if item.get('purchase_date'):
-        score += 5
-
-    return min(max(score, 0), 100)
-
-
-def parse_receipt_text(text: str) -> List[Dict]:
-    """
-    Advanced parsing of OCR text to identify grocery items.
-    Uses multiple strategies and confidence scoring.
-
-    Args:
-        text (str): Raw text extracted from receipt via OCR
-
-    Returns:
-        List[Dict]: List of dictionaries containing item details with confidence scores
-    """
-    items = []
-    lines = text.split('\n')
-
-    # Extract purchase date
-    purchase_date = extract_dates_from_text(text)
-
-    # Keywords to skip (header/footer that aren't grocery items)
-    skip_keywords = [
-        'receipt', 'store', 'address', 'tel', 'phone', 'tax', 'total', 'subtotal',
-        'change', 'card', 'cash', 'thank', 'welcome', 'visit', 'vat', 'qty',
-        'amount', 'payment', 'balance', 'tender', 'customer', 'cashier',
-        # Romanized Korean: receipt, address, phone, total, subtotal, vat, taxable, card, cash
-        'yeongsujeung', 'juso', 'jeonhwa', 'hapgye', 'sogye', 'bugase', 'gwase', 'kadeu', 'hyeongeum',
-        # Romanized Korean: thanks, visit, customer, cashier, change, payment, settle, total
-        'gamsa', 'bangmun', 'gogaek', 'kaesieo', 'geoseureum', 'jibul', 'gyeolje', 'chong', 'gye',
-        # Romanized Korean: business, representative, manager, store, number, date, time
-        'saeopja', 'daepyo', 'damdang', 'maejang', 'beonho', 'naljja', 'date', 'time', 'sigan'
-    ]
-
-    # Pattern for receipt item lines (usually: item name + quantity/price)
-    # gae = ea (each), won = Korean currency
-    item_indicators = [r'\d+[xX×]', r'₩', r'\$', r'won', r'gae', r'\d{1,3}[,\d]*']
-
-    for line_num, line in enumerate(lines):
-        line = line.strip()
-
-        # Skip empty or very short lines
-        if not line or len(line) < 2:
-            continue
-
-        # Skip header/footer lines
-        if any(keyword in line.lower() for keyword in skip_keywords):
-            continue
-
-        # Skip lines that are just numbers or prices
-        if re.match(r'^[\d,.\s₩$won]+$', line):
-            continue
-
-        # Check if line likely contains an item (has price or quantity indicator)
-        has_indicator = any(re.search(pattern, line) for pattern in item_indicators)
-
-        if has_indicator:
-            # Extract quantity and price
-            quantity, price = extract_quantity_and_price(line)
-
-            # Clean item name
-            item_name = line
-
-            # Remove quantity markers (gae = ea/each in romanized Korean, EA = each)
-            item_name = re.sub(r'\d+\s*[xX×*gaeEA]\s*', '', item_name)
-            item_name = re.sub(r'[xX×*]\s*\d+', '', item_name)
-
-            # Remove price markers
-            item_name = re.sub(r'₩\s*[\d,]+\.?\d*', '', item_name)
-            item_name = re.sub(r'\$\s*[\d,]+\.?\d*', '', item_name)
-            item_name = re.sub(r'[\d,]+\s*won', '', item_name)
-            item_name = re.sub(r'[\d,]+\.?\d*\s*$', '', item_name)
-
-            # Clean special characters (keep English, numbers, spaces, common romanized patterns)
-            item_name = re.sub(r'[^\w\s0-9a-zA-Z-]', ' ', item_name)
-            item_name = ' '.join(item_name.split())  # Normalize whitespace
-
-            # Validate item name
-            if item_name and 2 <= len(item_name) <= 100:
-                # Avoid duplicate consecutive items
-                if items and items[-1]['name'] == item_name:
-                    continue
-
-                item = {
-                    'name': item_name,
-                    'quantity': quantity,
-                    'purchase_date': purchase_date,
-                    'price': price
-                }
-
-                # Calculate confidence
-                confidence = calculate_confidence_score(item)
-                item['confidence'] = confidence
-
-                # Only add items with reasonable confidence (>= 40)
-                if confidence >= 40:
-                    items.append(item)
-                    logger.debug(f"Item parsed: {item_name} (qty: {quantity}, conf: {confidence:.1f}%)")
-                else:
-                    logger.debug(f"Rejected low-confidence item: {item_name} (conf: {confidence:.1f}%)")
-
-    # Sort by confidence (highest first)
-    items.sort(key=lambda x: x['confidence'], reverse=True)
-
+    purchase_date = purchase_date or extract_dates_from_text(text)
+    items = receipt_parser.parse_receipt_items(text, receipt_type)
+    for item in items:
+        item['purchase_date'] = purchase_date
+        item['confidence'] = calculate_confidence_score(item)
     logger.info(f"Parsed {len(items)} items from receipt")
     return items
 
 
+def parse_receipt(text: str, day_first: bool = False) -> Dict:
+    """
+    Full text pipeline: date, layout type, store, items with normalized names and categories.
+
+    Returns a dict with keys items, date (None if not printed), receipt_type, store, quality.
+    """
+    text = post_process_ocr_text(text)
+    receipt_type = detect_receipt_type(text)
+    found_date = receipt_parser.find_receipt_date(text, day_first=day_first)
+    items = parse_receipt_text(text, receipt_type, found_date or receipt_parser.today_iso())
+    items = merge_duplicate_items(validate_and_fix_items(items))
+    for item in items:
+        item.setdefault('category', get_category_suggestion(item['name']))
+    quality = analyze_receipt_quality(text, items)
+    for item in items:
+        item['quality_score'] = quality['quality_score']
+    return {
+        'items': items,
+        'date': found_date,
+        'receipt_type': receipt_type,
+        'store': extract_store_info(text).get('name'),
+        'quality': quality,
+        'text': text,
+    }
+
+
+def analyze_receipt_image(image_path: str, languages: str = 'eng+kor') -> Dict:
+    """OCR an image and parse it. Same keys as parse_receipt() plus 'ocr_seconds' and 'passes'."""
+    stats: Dict = {}
+    text = extract_text_from_image(image_path, languages, stats=stats)
+    if not text or len(text.strip()) < 10:
+        logger.warning("No meaningful text extracted from image")
+        return {'items': [], 'date': None, 'receipt_type': 'unknown', 'store': None, 'quality': None, 'text': text or '',
+                'ocr_seconds': stats.get('total_s'), 'passes': stats.get('passes')}
+    result = parse_receipt(text)
+    result['ocr_seconds'] = stats.get('total_s')
+    result['passes'] = stats.get('passes')
+    logger.info(f"Receipt type: {result['receipt_type']}, store: {result['store']}, {len(result['items'])} items")
+    return result
+
 
 def process_receipt_image(image_path, languages='eng+kor'):
     """
-    Main function to process a receipt image and extract grocery items.
-    Combines image preprocessing, OCR text extraction, and intelligent parsing.
-    Enhanced with advanced normalization and quality analysis.
-
-    Args:
-        image_path (str): Path to the receipt image file
-        languages (str): OCR language codes (default: 'eng+kor')
-
-    Returns:
-        list: List of parsed grocery items with name, quantity, purchase date, and metadata
+    Process a receipt image and return the list of parsed grocery items.
+    Raises TesseractNotFoundError when Tesseract is missing; returns [] on other errors.
     """
     try:
         logger.info(f"Processing receipt image: {image_path}")
-
-        # Extract text from image
-        text = extract_text_from_image(image_path, languages)
-
-        if not text or len(text.strip()) < 10:
-            logger.warning("No meaningful text extracted from image")
-            return []
-
-        # Advanced: Detect receipt type
-        if ADVANCED_FEATURES:
-            receipt_type = detect_receipt_type(text)
-            store_info = extract_store_info(text)
-            logger.info(f"Receipt type: {receipt_type}, Store: {store_info.get('name', 'Unknown')}")
-
-        # Parse extracted text into structured items
-        items = parse_receipt_text(text)
-
-        if not items:
-            logger.warning("No items parsed from receipt text")
-            return []
-
-        # Advanced: Normalize, validate and merge items
-        if ADVANCED_FEATURES:
-            logger.info("Applying advanced item processing...")
-            items = validate_and_fix_items(items)
-            items = merge_duplicate_items(items)
-
-            # Add category suggestions
-            for item in items:
-                if 'category' not in item or not item['category']:
-                    item['category'] = get_category_suggestion(item['name'])
-                    logger.debug(f"Category suggested for '{item['name']}': {item['category']}")
-
-            # Analyze quality
-            quality_analysis = analyze_receipt_quality(text, items)
-            logger.info(f"Receipt quality score: {quality_analysis['quality_score']}/100")
-            logger.info(f"Average item confidence: {quality_analysis['avg_confidence']:.1f}%")
-
-            if quality_analysis['warnings']:
-                for warning in quality_analysis['warnings']:
-                    logger.warning(f"Quality issue: {warning}")
-
-            # Add quality metadata to items
-            for item in items:
-                item['quality_score'] = quality_analysis['quality_score']
-
-        logger.info(f"Receipt processing complete: {len(items)} items extracted")
-        return items
-
+        return analyze_receipt_image(image_path, languages)['items']
     except pytesseract.TesseractNotFoundError:
-        # Let the caller tell the user that OCR is unavailable
         raise
-
     except Exception as e:
         logger.error(f"Error processing receipt image {image_path}: {e}", exc_info=True)
         return []

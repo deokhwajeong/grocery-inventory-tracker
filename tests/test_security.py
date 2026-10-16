@@ -72,11 +72,11 @@ def test_upload_size_limit(client, monkeypatch):
 
 def test_upload_runs_ocr_on_a_valid_image(client, monkeypatch):
     monkeypatch.setattr(app_module, "is_tesseract_available", lambda: True)
-    monkeypatch.setattr(app_module, "process_receipt_image", lambda path, langs: [
-        {"name": "Milk", "quantity": 1, "purchase_date": date.today().isoformat(), "category": "Dairy", "confidence": 90}])
+    monkeypatch.setattr(app_module, "analyze_receipt_image", lambda path, langs: {"items": [
+        {"name": "Milk", "quantity": 1, "purchase_date": date.today().isoformat(), "category": "Dairy", "confidence": 90}]})
     response = client.post("/ocr", data={"receipt": (io.BytesIO(png_bytes()), "receipt.png")},
                            content_type="multipart/form-data")
-    assert response.status_code == 302 and response.headers["Location"].endswith("/ocr/review")
+    assert response.status_code == 302 and "/ocr/review?receipts=" in response.headers["Location"]
 
 
 def test_catalog_codes_have_valid_check_digits():

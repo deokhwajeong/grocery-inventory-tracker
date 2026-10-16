@@ -6,7 +6,7 @@
 <div class="row justify-content-center">
     <div class="col-md-8">
         <h1 class="mb-1">Scan a receipt</h1>
-        <p class="text-muted mb-4">Upload a photo of a grocery receipt. Tesseract OCR reads the line items and purchase date, then you review everything before it is saved.</p>
+        <p class="text-muted mb-4">Upload photos of grocery receipts, one or a whole batch. Tesseract OCR reads the items, prices and purchase date, then you review everything before it is saved.</p>
 
         {% if not ocr_available %}
         <div class="alert alert-warning">
@@ -19,74 +19,63 @@
         
         <div class="card">
             <div class="card-body">
-                <form method="POST" action="/ocr" enctype="multipart/form-data" id="upload-form">
+                <form method="POST" action="{{ url_for('ocr_upload') }}" enctype="multipart/form-data" id="upload-form"
+                      data-scan-url="/api/ocr/scan" data-limit="{{ batch_limit }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <a href="{{ url_for('ocr_review') }}" id="review-link" class="d-none" aria-hidden="true" tabindex="-1">review</a>
                     <div class="mb-4">
-                        <label class="form-label d-block mb-3">Receipt image</label>
-                        
-                        <!-- Camera Capture Button -->
+                        <label class="form-label d-block mb-3" for="file-input">Receipt images</label>
+
                         <div class="d-grid gap-2 mb-3" id="camera-section">
-                            <button type="button" class="btn btn-primary btn-lg" id="camera-btn">
-                                Take a photo
-                            </button>
+                            <button type="button" class="btn btn-primary btn-lg" id="camera-btn">Take a photo</button>
                         </div>
-                        
-                        <!-- File Upload Button -->
+
                         <div class="d-grid gap-2">
-                            <button type="button" class="btn btn-outline-primary btn-lg" id="upload-btn">
-                                Choose a receipt image
-                            </button>
+                            <button type="button" class="btn btn-outline-primary btn-lg" id="upload-btn">Choose receipt images</button>
                         </div>
-                        
-                        <!-- Hidden file input (fallback for web) -->
-                        <input type="file" class="d-none" id="file-input" name="receipt" accept="image/*">
-                        
+
+                        <input type="file" class="d-none" id="file-input" name="receipt" accept="image/*" multiple>
+
                         <div class="form-text mt-2 text-center">
-                            JPG, PNG, GIF, BMP or WebP, up to 16 MB
+                            JPG, PNG, GIF, BMP or WebP, up to 16 MB each. Pick up to {{ batch_limit }} receipts to scan them in one go.
                         </div>
                     </div>
-                    
-                    <div class="mb-3">
-                        <div id="preview-container" style="display: none;">
-                            <label class="form-label d-block">Preview</label>
-                            <img id="image-preview" src="" alt="Preview" class="img-fluid rounded" style="max-height: 400px;">
+
+                    <div id="selection" class="mb-3 d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="form-label mb-0" id="selection-title">Selected receipts</span>
+                            <button type="button" class="btn btn-sm btn-link" id="clear-btn">Clear</button>
+                        </div>
+                        <ul class="batch-list" id="batch-list" aria-live="polite"></ul>
+                    </div>
+
+                    <div id="processing-status" class="mb-3 d-none" role="status">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span id="status-message">Reading receipts...</span>
+                            <span id="progress-text">0 of 0</span>
+                        </div>
+                        <div class="progress" style="height: 10px;">
+                            <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%"
+                                 aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
                         </div>
                     </div>
-                    
+
+                    <div id="batch-error" class="alert alert-warning d-none"></div>
+
                     <div class="d-grid gap-2 d-none" id="submit-buttons">
                         <button type="submit" class="btn btn-primary btn-lg" id="process-btn">
-                            <span class="spinner-border spinner-border-sm d-none" id="loading-spinner"></span>
+                            <span class="spinner-border spinner-border-sm d-none" id="loading-spinner" aria-hidden="true"></span>
                             <span id="btn-text">Read receipt</span>
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="resetForm()">Choose Different Photo</button>
-                        
-                        <!-- Processing Status -->
-                        <div id="processing-status" class="card mt-3 d-none">
-                            <div class="card-body">
-                                <h6 class="card-title">
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                    Processing Receipt...
-                                </h6>
-                                <div class="progress mt-2" style="height: 25px;">
-                                    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" 
-                                         role="progressbar" style="width: 0%">
-                                        <span id="progress-text">0%</span>
-                                    </div>
-                                </div>
-                                <p class="mt-2 mb-0 small text-muted" id="status-message">
-                                    Uploading image...
-                                </p>
-                            </div>
-                        </div>
                     </div>
-                    
-                    <div class="d-grid gap-2" id="cancel-button">
-                        <a href="/" class="btn btn-secondary">Cancel</a>
+
+                    <div class="d-grid gap-2 mt-2" id="cancel-button">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">Cancel</a>
                     </div>
                 </form>
             </div>
         </div>
-        
+
         <div class="mt-4">
             <h2 class="h6">Tips for best results</h2>
             <ul class="text-muted small">
@@ -101,174 +90,183 @@
 
 <script src="{{ url_for('static', filename='camera-handler.js') }}"></script>
 <script>
-    let selectedFile = null;
+    const form = document.getElementById('upload-form');
+    const fileInput = document.getElementById('file-input');
+    const LIMIT = parseInt(form.dataset.limit, 10) || 10;
+    const MAX_SIZE = 16 * 1024 * 1024;
+    const VALID_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
+    let selected = [];          // [{file, dataUrl, status}]
     let cameraHandler = null;
-    
-    // Initialize camera handler on page load
-    document.addEventListener('DOMContentLoaded', async function() {
+    let busy = false;
+
+    document.addEventListener('DOMContentLoaded', async function () {
         cameraHandler = new CameraHandler();
-        
-        // Get platform info
         const platformInfo = cameraHandler.getPlatformInfo();
-        console.log('Platform:', platformInfo);
-        
-        // Request permissions for native apps
         if (platformInfo.isNative) {
-            const hasPermissions = await cameraHandler.requestPermissions();
-            if (!hasPermissions) {
-                alert('Camera permissions are required to use this feature.');
-            }
+            const ok = await cameraHandler.requestPermissions();
+            if (!ok) alert('Camera permissions are required to use this feature.');
         }
-        
-        // Show/hide camera button based on platform
-        // Always show on mobile, hide on desktop unless it's a native app
         if (!platformInfo.isMobile && !platformInfo.isNative) {
             document.getElementById('camera-section').classList.add('d-none');
         }
     });
-    
-    // Camera button click handler
-    document.getElementById('camera-btn').addEventListener('click', async function() {
+
+    document.getElementById('camera-btn').addEventListener('click', async function () {
         try {
-            const result = await cameraHandler.getPhoto('camera');
-            handlePhotoResult(result);
+            handlePhotoResult(await cameraHandler.getPhoto('camera'));
         } catch (error) {
-            console.error('Camera error:', error);
-            alert('Failed to capture photo: ' + error.message);
+            console.warn('Camera error:', error);
         }
     });
-    
-    // Upload button click handler
-    document.getElementById('upload-btn').addEventListener('click', async function() {
-        try {
-            const result = await cameraHandler.getPhoto('photos');
-            handlePhotoResult(result);
-        } catch (error) {
-            console.error('Upload error:', error);
-            alert('Failed to select photo: ' + error.message);
-        }
+
+    document.getElementById('upload-btn').addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', event => {
+        Array.from(event.target.files).forEach(file => addFile(file));
+        fileInput.value = '';
     });
-    
-    // Handle photo result from camera handler
+
+    document.getElementById('clear-btn').addEventListener('click', () => { if (!busy) { selected = []; render(); } });
+
+    // Kept as a global: the camera handler and the static demo hand photos in here.
     function handlePhotoResult(result) {
-        const { dataUrl, file } = result;
-        
-        // Validate file size (16MB max)
-        const maxSize = 16 * 1024 * 1024;
-        if (file.size > maxSize) {
-            alert('File size exceeds 16MB. Please choose a smaller image.');
-            return;
-        }
-        
-        selectedFile = file;
-        
-        // Set the file to the hidden input for form submission
-        const fileInput = document.getElementById('file-input');
-        const dataTransfer = new DataTransfer();
-        dataTransfer.items.add(file);
-        fileInput.files = dataTransfer.files;
-        
-        // Show preview
-        document.getElementById('image-preview').src = dataUrl;
-        document.getElementById('preview-container').style.display = 'block';
-        document.getElementById('submit-buttons').classList.remove('d-none');
-        document.getElementById('cancel-button').classList.add('d-none');
+        addFile(result.file, result.dataUrl);
     }
-    
-    // Detect device type and hide camera button on desktop
-    function isMobileDevice() {
-        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) 
-            || (navigator.maxTouchPoints && navigator.maxTouchPoints > 2);
+    window.handlePhotoResult = handlePhotoResult;
+
+    function addFile(file, dataUrl) {
+        if (busy) return;
+        if (selected.length >= LIMIT) { showError(`You can scan up to ${LIMIT} receipts at a time.`); return; }
+        if (file.size > MAX_SIZE) { showError(`${file.name} is larger than 16 MB.`); return; }
+        if (file.type && !VALID_TYPES.includes(file.type)) { showError(`${file.name} is not a supported image type.`); return; }
+        const entry = { file, dataUrl: dataUrl || '', status: 'Ready' };
+        selected.push(entry);
+        if (!dataUrl) {
+            const reader = new FileReader();
+            reader.onload = e => { entry.dataUrl = e.target.result; render(); };
+            reader.readAsDataURL(file);
+        }
+        hideError();
+        render();
     }
-    
-    // Legacy file input handler (fallback)
-    document.getElementById('file-input').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        
-        // Validate file size (16MB max)
-        const maxSize = 16 * 1024 * 1024; // 16MB in bytes
-        if (file.size > maxSize) {
-            alert('File size exceeds 16MB. Please choose a smaller image.');
-            e.target.value = '';
-            return;
-        }
-        
-        // Validate file type
-        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/bmp', 'image/webp'];
-        if (!validTypes.includes(file.type)) {
-            alert('Invalid file type. Please upload a valid image file (JPG, PNG, GIF, BMP, WebP).');
-            e.target.value = '';
-            return;
-        }
-        
-        selectedFile = file;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            document.getElementById('image-preview').src = e.target.result;
-            document.getElementById('preview-container').style.display = 'block';
-            document.getElementById('submit-buttons').classList.remove('d-none');
-            document.getElementById('cancel-button').classList.add('d-none');
-        };
-        reader.readAsDataURL(file);
-    });
-    
-    function resetForm() {
-        document.getElementById('file-input').value = '';
-        document.getElementById('preview-container').style.display = 'none';
-        document.getElementById('submit-buttons').classList.add('d-none');
-        document.getElementById('cancel-button').classList.remove('d-none');
-        selectedFile = null;
-    }
-    
-    // Show loading spinner on submit
-    document.getElementById('upload-form').addEventListener('submit', function(e) {
-        // Check if a file is selected
-        const uploadFile = document.getElementById('file-input').files[0];
-        
-        if (!uploadFile) {
-            e.preventDefault();
-            alert('Please select a photo first!');
-            return false;
-        }
-        
-        // Show processing status
-        document.getElementById('loading-spinner').classList.remove('d-none');
-        document.getElementById('process-btn').disabled = true;
-        document.getElementById('processing-status').classList.remove('d-none');
-        
-        // Simulate progress (since actual OCR happens server-side)
-        simulateProgress();
-    });
-    
-    function simulateProgress() {
-        const progressBar = document.getElementById('progress-bar');
-        const progressText = document.getElementById('progress-text');
-        const statusMessage = document.getElementById('status-message');
-        
-        const stages = [
-            { percent: 20, message: 'Uploading image...' },
-            { percent: 40, message: 'Preprocessing image...' },
-            { percent: 60, message: 'Extracting text with OCR...' },
-            { percent: 80, message: 'Parsing receipt items...' },
-            { percent: 95, message: 'Validating results...' }
-        ];
-        
-        let currentStage = 0;
-        const interval = setInterval(() => {
-            if (currentStage < stages.length) {
-                const stage = stages[currentStage];
-                progressBar.style.width = stage.percent + '%';
-                progressText.textContent = stage.percent + '%';
-                statusMessage.textContent = stage.message;
-                currentStage++;
-            } else {
-                clearInterval(interval);
-                progressBar.style.width = '100%';
-                progressText.textContent = '100%';
-                statusMessage.textContent = 'Complete! Redirecting...';
+
+    function render() {
+        const list = document.getElementById('batch-list');
+        list.innerHTML = '';
+        selected.forEach((entry, i) => {
+            const li = document.createElement('li');
+            const img = document.createElement('img');
+            img.alt = '';
+            if (entry.dataUrl) img.src = entry.dataUrl;
+            const name = document.createElement('span');
+            name.className = 'batch-name';
+            name.textContent = entry.file.name;
+            const status = document.createElement('span');
+            status.className = 'batch-status' + (entry.state ? ' is-' + entry.state : '');
+            status.textContent = entry.status;
+            li.append(img, name, status);
+            if (!busy) {
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'batch-remove';
+                remove.setAttribute('aria-label', `Remove ${entry.file.name}`);
+                remove.textContent = '×';
+                remove.addEventListener('click', () => { selected.splice(i, 1); render(); });
+                li.append(remove);
             }
-        }, 800);
+            list.append(li);
+        });
+        const n = selected.length;
+        document.getElementById('selection').classList.toggle('d-none', n === 0);
+        document.getElementById('selection-title').textContent = n === 1 ? '1 receipt selected' : `${n} receipts selected`;
+        document.getElementById('submit-buttons').classList.toggle('d-none', n === 0);
+        document.getElementById('cancel-button').classList.toggle('d-none', n > 0);
+        document.getElementById('btn-text').textContent = n > 1 ? `Read ${n} receipts` : 'Read receipt';
     }
+
+    function showError(message) {
+        const box = document.getElementById('batch-error');
+        box.textContent = message;
+        box.classList.remove('d-none');
+    }
+    function hideError() { document.getElementById('batch-error').classList.add('d-none'); }
+
+    function setProgress(done, total, message) {
+        const pct = total ? Math.round(100 * done / total) : 0;
+        const bar = document.getElementById('progress-bar');
+        bar.style.width = pct + '%';
+        bar.setAttribute('aria-valuenow', pct);
+        document.getElementById('progress-text').textContent = `${done} of ${total}`;
+        document.getElementById('status-message').textContent = message;
+    }
+
+    async function scanOne(entry) {
+        const data = new FormData();
+        data.append('receipt', entry.file, entry.file.name);
+        const response = await fetch(form.dataset.scanUrl, {
+            method: 'POST',
+            body: data,
+            headers: { 'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content },
+        });
+        let body = {};
+        try { body = await response.json(); } catch (e) { /* not JSON */ }
+        if (!response.ok) throw new Error(body.error || `Upload failed (${response.status})`);
+        return body;
+    }
+
+    // Read the receipts one after another so each gets its own progress update.
+    form.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (busy || !selected.length) return;
+        busy = true;
+        hideError();
+        document.getElementById('process-btn').disabled = true;
+        document.getElementById('loading-spinner').classList.remove('d-none');
+        document.getElementById('processing-status').classList.remove('d-none');
+        const ids = [];
+        const problems = [];
+        const total = selected.length;
+        for (let i = 0; i < total; i++) {
+            const entry = selected[i];
+            entry.status = 'Reading...';
+            entry.state = '';
+            render();
+            setProgress(i, total, `Reading ${entry.file.name}...`);
+            try {
+                const result = await scanOne(entry);
+                if (result.receipt_id) {
+                    ids.push(result.receipt_id);
+                    entry.status = `${result.items} items`;
+                    entry.state = 'done';
+                } else {
+                    entry.status = 'No items found';
+                    entry.state = 'error';
+                    problems.push(`${entry.file.name}: no items found`);
+                }
+            } catch (err) {
+                entry.status = 'Failed';
+                entry.state = 'error';
+                problems.push(`${entry.file.name}: ${err.message}`);
+            }
+            render();
+        }
+        setProgress(total, total, ids.length ? 'Done. Opening the review...' : 'Done.');
+        busy = false;
+        document.getElementById('loading-spinner').classList.add('d-none');
+        document.getElementById('process-btn').disabled = false;
+        const reviewUrl = document.getElementById('review-link').getAttribute('href') + '?receipts=' + ids.join(',');
+        if (ids.length && !problems.length) {
+            window.location.href = reviewUrl;
+        } else if (ids.length) {
+            showError(`${problems.join('. ')}. The other receipts are ready.`);
+            const link = document.createElement('a');
+            link.href = reviewUrl;
+            link.className = 'btn btn-primary btn-sm ms-2';
+            link.textContent = 'Review the rest';
+            document.getElementById('batch-error').append(link);
+        } else {
+            showError(problems.join('. ') + '. Try a clearer photo or add items manually.');
+        }
+    });
 </script>
 {% endblock %}

@@ -1,18 +1,30 @@
 """
-Offline barcode lookup against a small bundled catalog.
+Barcode lookup: a small bundled offline catalog, plus an optional online
+lookup on Open Food Facts.
 
-There is no online product database behind the barcode page. Lookups resolve
-against the table below, which uses UPC-A codes starting with "2". GS1 reserves
-that prefix for store-internal and random-weight items, so these codes can
-never collide with a real manufacturer's product. Anything not in the table is
-reported as not found and the user types the details in by hand.
+The offline table below uses UPC-A codes starting with "2". GS1 reserves that
+prefix for store-internal and random-weight items, so these codes can never
+collide with a real manufacturer's product.
 
-Swapping this module for an Open Food Facts client is the intended upgrade
-path; the API response shape (found, name, category, source) stays the same.
+lookup_online() asks the public Open Food Facts API (openfoodfacts.org, open
+data under the ODbL) for real product codes. It is only used when the app is
+started with BARCODE_ONLINE_LOOKUP=true. It has a short timeout and returns
+None on any network or data problem, so the page falls back to manual entry
+and the app keeps working offline.
 """
+import json
+import logging
+import urllib.error
+import urllib.request
+from functools import lru_cache
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 SOURCE = "local catalog"
+ONLINE_SOURCE = "Open Food Facts"
+OFF_URL = "https://world.openfoodfacts.org/api/v2/product/{code}.json?fields=product_name,brands,categories_tags"
+USER_AGENT = "GroceryInventoryTracker/1.0 (+https://github.com/deokhwajeong/grocery-inventory-tracker)"
 
 # (first 11 digits, product name, category). The check digit is computed.
 _ENTRIES = [
@@ -71,3 +83,53 @@ def lookup(code: str) -> Optional[dict]:
 def sample_codes(limit: int = 4) -> list:
     """A few catalog entries to show on the barcode page so the lookup can be tried."""
     return list(CATALOG.values())[:limit]
+
+
+# Open Food Facts category tags -> app categories (first match wins).
+OFF_CATEGORY_MAP = [
+    ("frozen", "Frozen"), ("ice-cream", "Frozen"),
+    ("dairies", "Dairy"), ("dairy", "Dairy"), ("milks", "Dairy"), ("cheeses", "Dairy"), ("yogurts", "Dairy"),
+    ("eggs", "Dairy"), ("butters", "Dairy"),
+    ("meats", "Meat"), ("poultry", "Meat"), ("seafood", "Meat"), ("fishes", "Meat"), ("sausages", "Meat"),
+    ("fruits", "Produce"), ("vegetables", "Produce"), ("fresh-", "Produce"),
+    ("breads", "Bakery"), ("pastries", "Bakery"), ("viennoiseries", "Bakery"), ("cakes", "Bakery"),
+    ("beverages", "Beverages"), ("drinks", "Beverages"), ("waters", "Beverages"), ("juices", "Beverages"),
+    ("coffees", "Beverages"), ("teas", "Beverages"), ("sodas", "Beverages"),
+    ("snacks", "Snacks"), ("sweets", "Snacks"), ("chocolates", "Snacks"), ("biscuits", "Snacks"), ("chips", "Snacks"),
+    ("cereals", "Pantry"), ("pastas", "Pantry"), ("rices", "Pantry"), ("sauces", "Pantry"), ("condiments", "Pantry"),
+    ("canned", "Pantry"), ("oils", "Pantry"), ("spreads", "Pantry"), ("groceries", "Pantry"),
+]
+
+
+def map_off_category(tags) -> str:
+    for tag in tags or []:
+        tag = tag.split(":", 1)[-1]
+        for needle, category in OFF_CATEGORY_MAP:
+            if needle in tag:
+                return category
+    return "Other"
+
+
+@lru_cache(maxsize=256)
+def lookup_online(code: str, timeout: float = 4.0) -> Optional[dict]:
+    """
+    Look a product up on Open Food Facts. Returns {'barcode', 'name', 'category'}
+    or None when the product is unknown or the service cannot be reached.
+    """
+    if not is_valid_gtin(code):
+        return None
+    request = urllib.request.Request(OFF_URL.format(code=code), headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+        logger.warning(f"Open Food Facts lookup failed for {code}: {e}")
+        return None
+    product = data.get("product") if isinstance(data, dict) and data.get("status") == 1 else None
+    name = (product or {}).get("product_name", "").strip()
+    if not name:
+        return None
+    brand = (product.get("brands") or "").split(",")[0].strip()
+    if brand and brand.lower() not in name.lower():
+        name = f"{brand} {name}"
+    return {"barcode": code, "name": name[:100], "category": map_off_category(product.get("categories_tags"))}
