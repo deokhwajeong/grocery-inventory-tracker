@@ -75,6 +75,17 @@ def test_delete_requires_post(client, db):
     assert db.execute("SELECT COUNT(*) FROM groceries").fetchone()[0] == 0
 
 
+def test_mark_used_decrements_then_removes(client, db):
+    add_item(db, "Greek Yogurt", qty=2)
+    item_id = db.execute("SELECT id FROM groceries").fetchone()[0]
+    assert client.get(f"/use/{item_id}").status_code == 405
+    response = client.post(f"/use/{item_id}", follow_redirects=True)
+    assert b"1 left" in response.data
+    assert db.execute("SELECT quantity FROM groceries").fetchone()[0] == 1
+    client.post(f"/use/{item_id}")
+    assert db.execute("SELECT COUNT(*) FROM groceries").fetchone()[0] == 0
+
+
 def test_dashboard_expiry_counts_and_warnings(client, db):
     add_item(db, "Old Spinach", expiry=-2, category="Produce")
     add_item(db, "Chicken Thighs", expiry=1, category="Meat")

@@ -148,6 +148,9 @@
                     {% endif %}
                 </td>
                 <td class="text-end text-nowrap">
+                    <form method="POST" action="{{ url_for('mark_used', id=item['id']) }}" class="d-inline use-form">
+                        <button type="submit" class="btn btn-sm btn-light" title="Take one off the quantity">Used</button>
+                    </form>
                     <a href="{{ url_for('edit', id=item['id']) }}" class="btn btn-sm btn-light">Edit</a>
                     <button type="button" class="btn btn-sm btn-light share-btn" data-id="{{ item['id'] }}">Share</button>
                     <form method="POST" action="{{ url_for('delete', id=item['id']) }}" class="d-inline delete-form" data-name="{{ item['name'] }}">

@@ -452,6 +452,42 @@ def delete(id):
     return redirect(url_for('index'))
 
 
+@app.route('/use/<int:id>', methods=['POST'])
+def mark_used(id):
+    """
+    Mark one unit of an item as used. The quantity goes down by one and the
+    item is removed once none are left.
+
+    Args:
+        id (int): Database ID of the item that was used
+    """
+    try:
+        conn = get_db_connection()
+        item = conn.execute('SELECT name, quantity FROM groceries WHERE id = ?', (id,)).fetchone()
+        if item is None:
+            conn.close()
+            flash('Item not found', 'error')
+            return redirect(url_for('index'))
+
+        if item['quantity'] > 1:
+            conn.execute('UPDATE groceries SET quantity = quantity - 1 WHERE id = ?', (id,))
+            message = f"Marked one {item['name']} as used. {item['quantity'] - 1} left."
+        else:
+            conn.execute('DELETE FROM groceries WHERE id = ?', (id,))
+            message = f"Used the last {item['name']}. Removed it from the inventory."
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Item {id} used: {item['name']}")
+        flash(message, 'success')
+
+    except sqlite3.Error as e:
+        logger.error(f"Database error while marking item {id} as used: {e}")
+        flash('Database error occurred. Please try again.', 'error')
+
+    return redirect(url_for('index'))
+
+
 @app.route('/ocr', methods=['GET', 'POST'])
 def ocr_upload():
     """

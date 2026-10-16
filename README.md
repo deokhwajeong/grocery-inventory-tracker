@@ -17,9 +17,22 @@ A Flask and SQLite web app for keeping track of what is in the fridge and pantry
 
 All screenshots use synthetic demo data from `scripts/seed_demo_data.py`.
 
+## Live demo
+
+**[Try it in your browser](https://deokhwajeong.github.io/demos/grocery/)**, no install or sign-up needed.
+
+The demo is a static build of this app for GitHub Pages. `scripts/build_demo.py` renders the real Jinja templates through Flask's test client against a seeded in-memory SQLite database (fictional items, dates relative to the build day), and a small script (`demo/demo.js`) stands in for the Flask routes by keeping the inventory in your browser's localStorage. Adding, editing, deleting, marking items as used, filtering, the shopping list, insights, settings, and CSV export all work. The receipt step loads a generated sample receipt whose OCR results were computed at build time, so you can try the review screen without a server. Nothing you enter leaves your browser, and "Reset demo data" in the banner restores the sample inventory.
+
+To build it yourself:
+
+```bash
+python scripts/build_demo.py           # writes demo-dist/ (gitignored)
+python -m http.server -d demo-dist     # open http://127.0.0.1:8000
+```
+
 ## Features
 
-- **Inventory CRUD.** Add, edit, and delete items with name, quantity, category (9 built-in), purchase date, expiry date, and notes. Server-side validation rejects bad quantities, malformed dates, and expiry dates before the purchase date.
+- **Inventory CRUD.** Add, edit, and delete items with name, quantity, category (9 built-in), purchase date, expiry date, and notes. A "Used" button takes one off the quantity and removes the item when the last one is used. Server-side validation rejects bad quantities, malformed dates, and expiry dates before the purchase date.
 - **Expiry tracking.** Each item is marked fresh, expiring soon, or expired. A "Use these first" panel lists expired items and items expiring within the warning window (7 days by default, adjustable to 3 or 14 on the Settings page).
 - **Receipt scanning with OCR.** Upload or photograph a receipt. OpenCV preprocesses the image (deskew, contrast, thresholding, denoising), Tesseract extracts text, and a parser pulls out item lines, quantities such as `2x`, prices, and the purchase date while skipping totals, tax, and payment lines. Names are normalized against a small product dictionary and given a suggested category. Nothing is saved until you confirm on the review screen.
 - **Search, filter, and sort** by name, category, purchase date, expiry date, or quantity.
@@ -92,6 +105,8 @@ ocr_processor.py       Image preprocessing, Tesseract calls, receipt text parsin
 ocr_advanced.py        Product name normalization, duplicate merging, category suggestions
 scripts/
   seed_demo_data.py    Loads synthetic demo items with dates relative to today
+  build_demo.py        Builds the static GitHub Pages demo into demo-dist/
+demo/                  Browser-side data layer and banner styles for the static demo
 templates/             Jinja templates (layout.html is the shared shell)
 static/
   styles.css           App theme on top of Bootstrap
