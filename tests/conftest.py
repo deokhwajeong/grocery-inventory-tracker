@@ -21,6 +21,8 @@ import app as app_module  # noqa: E402
 @pytest.fixture
 def client():
     app_module.app.config["TESTING"] = True
+    # Most tests post forms directly; test_security.py turns CSRF back on.
+    app_module.app.config["WTF_CSRF_ENABLED"] = False
     app_module.init_db()
     conn = app_module.get_db_connection()
     conn.execute("DELETE FROM groceries")

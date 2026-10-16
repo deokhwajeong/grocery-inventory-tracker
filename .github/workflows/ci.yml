@@ -27,5 +27,13 @@ jobs:
       - name: Lint
         run: ruff check .
 
-      - name: Test
-        run: pytest -v
+      - name: Test with coverage gate
+        # fail_under in pyproject.toml fails the job below 80% line coverage
+        run: pytest -v --cov --cov-report=term --cov-report=xml
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage.xml ]; then
+            python -c "import xml.etree.ElementTree as ET; r=float(ET.parse('coverage.xml').getroot().get('line-rate')); print(f'### Line coverage: {r*100:.1f}% (gate: 80%)')" >> "$GITHUB_STEP_SUMMARY"
+          fi

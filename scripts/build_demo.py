@@ -43,6 +43,7 @@ os.environ["FLASK_ENV"] = "development"
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 import app as app_module  # noqa: E402
+import barcode_catalog  # noqa: E402
 import ocr_processor  # noqa: E402
 from ocr_advanced import get_category_suggestion  # noqa: E402
 from seed_demo_data import DEMO_ITEMS  # noqa: E402
@@ -261,6 +262,8 @@ def build(out_dir):
         "built": today.isoformat(),
         "categories": app_module.CATEGORIES,
         "warningDays": app_module.app.config["EXPIRY_WARNING_DAYS"],
+        "mergeWindowDays": app_module.app.config["MERGE_EXPIRY_WINDOW_DAYS"],
+        "barcodes": list(barcode_catalog.CATALOG.values()),
         "items": seed_rows,
         "receipt": {
             "image": "static/demo/sample-receipt.png",

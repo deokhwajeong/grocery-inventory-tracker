@@ -20,6 +20,7 @@
         <div class="card">
             <div class="card-body">
                 <form method="POST" action="/ocr" enctype="multipart/form-data" id="upload-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-4">
                         <label class="form-label d-block mb-3">Receipt image</label>
                         

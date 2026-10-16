@@ -70,5 +70,10 @@ add_sample_data.py
 # Docker volume for the SQLite database
 data/
 
+# Coverage output
+.coverage
+coverage.xml
+htmlcov/
+
 # Static demo build output (scripts/build_demo.py)
 demo-dist/

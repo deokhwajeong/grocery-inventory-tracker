@@ -9,6 +9,7 @@
         
         
         <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <!-- Notification Settings -->
             <div class="card mb-4">
                 <div class="card-header">
@@ -111,6 +112,11 @@
 </div>
 
 <script>
+function csrfHeaders() {
+    const meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? { 'X-CSRFToken': meta.content } : {};
+}
+
 // Request notification permission
 document.getElementById('request-notification-permission').addEventListener('click', async () => {
     if (!('Notification' in window)) {
@@ -143,7 +149,7 @@ function exportData() {
 // Clear expired items
 function clearExpiredItems() {
     if (confirm('Remove all expired items from inventory?')) {
-        fetch('/api/clear-expired', { method: 'POST' })
+        fetch('/api/clear-expired', { method: 'POST', headers: csrfHeaders() })
             .then(response => response.json())
             .then(data => {
                 alert(`Removed ${data.count} expired items`);
@@ -156,7 +162,7 @@ function clearExpiredItems() {
 function confirmReset() {
     const confirmation = prompt('Type "DELETE ALL" to confirm reset:');
     if (confirmation === 'DELETE ALL') {
-        fetch('/api/reset', { method: 'POST' })
+        fetch('/api/reset', { method: 'POST', headers: csrfHeaders() })
             .then(() => {
                 alert('All data has been reset');
                 window.location.href = '/';

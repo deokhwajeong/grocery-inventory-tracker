@@ -38,11 +38,20 @@
                             🔍 Lookup
                         </button>
                     </div>
+                    <p class="small text-muted mt-2 mb-1 text-start" id="catalog-note">
+                        Lookups use a small offline catalog bundled with the app, not an online product database.
+                        Codes that are not in it can still be added by typing the details in. Try a sample code:
+                    </p>
+                    <div class="d-flex flex-wrap gap-2 justify-content-start">
+                        {% for product in sample_codes %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary sample-code" data-code="{{ product.barcode }}">{{ product.barcode }} <span class="text-muted">{{ product.name }}</span></button>
+                        {% endfor %}
+                    </div>
                 </div>
                 
                 <!-- Scanned Result -->
                 <div id="barcode-result" style="display: none;" class="alert alert-success">
-                    <h5>Barcode Detected!</h5>
+                    <h5 id="barcode-heading">Barcode Detected!</h5>
                     <p id="barcode-number" class="mb-2"></p>
                     <div id="product-info"></div>
                 </div>
@@ -56,6 +65,7 @@
             </div>
             <div class="card-body">
                 <form method="POST" action="{{ url_for('add') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label for="name" class="form-label">Product Name*</label>
                         <input type="text" class="form-control" id="name" name="name" required>
@@ -107,7 +117,7 @@
     </div>
 </div>
 
-<script src="https://unpkg.com/@zxing/library@latest"></script>
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
 let codeReader = null;
 let selectedDeviceId = null;
@@ -174,15 +184,21 @@ function handleBarcodeDetection(barcode) {
     document.getElementById('barcode-result').style.display = 'block';
     document.getElementById('manual-barcode').value = barcode;
     
-    // Lookup barcode in database
-    fetch(`/api/barcode/${barcode}`)
+    // Lookup barcode in the bundled offline catalog
+    const result = document.getElementById('barcode-result');
+    const heading = document.getElementById('barcode-heading');
+    const info = document.getElementById('product-info');
+    fetch(`/api/barcode/${encodeURIComponent(barcode)}`)
         .then(response => response.json())
         .then(data => {
-            if (data.name) {
-                document.getElementById('product-info').innerHTML = `
-                    <p><strong>Product:</strong> ${data.name}</p>
-                    <p><strong>Category:</strong> ${data.category}</p>
-                `;
+            result.classList.toggle('alert-success', !!data.found);
+            result.classList.toggle('alert-warning', !data.found);
+            if (data.found) {
+                heading.textContent = 'Found in the local catalog';
+                info.innerHTML = '<p class="mb-1"><strong>Product:</strong> <span class="pi-name"></span></p>'
+                    + '<p class="mb-0"><strong>Category:</strong> <span class="pi-category"></span></p>';
+                info.querySelector('.pi-name').textContent = data.name;
+                info.querySelector('.pi-category').textContent = data.category;
                 
                 // Pre-fill form
                 document.getElementById('name').value = data.name;
@@ -192,10 +208,9 @@ function handleBarcodeDetection(barcode) {
                 // Scroll to form
                 document.getElementById('add-form').scrollIntoView({ behavior: 'smooth' });
             } else {
-                document.getElementById('product-info').innerHTML = `
-                    <p class="text-warning">⚠️ Product not found in database. Please enter details manually.</p>
-                `;
-                document.getElementById('add-form').style.display = 'block';
+                heading.textContent = data.error ? 'Not a valid barcode' : 'Not in the local catalog';
+                info.textContent = data.error || data.message || 'Please enter the product details manually.';
+                if (!data.error) document.getElementById('add-form').style.display = 'block';
             }
         })
         .catch(error => {
@@ -227,6 +242,11 @@ function resetScanner() {
     document.getElementById('expiry_date').value = '';
     document.getElementById('notes').value = '';
 }
+
+// Sample catalog codes
+document.querySelectorAll('.sample-code').forEach(button => {
+    button.addEventListener('click', () => handleBarcodeDetection(button.dataset.code));
+});
 
 // Handle Enter key in manual input
 document.getElementById('manual-barcode').addEventListener('keypress', (e) => {

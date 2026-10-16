@@ -1,5 +1,9 @@
 """Route-level tests for the Flask app."""
+import io
+import sqlite3
 from datetime import date, timedelta
+
+import pytest
 
 import app as app_module
 
@@ -185,7 +189,6 @@ def test_ocr_review_saves_selected_items(client, db):
 
 
 def test_ocr_upload_without_tesseract_degrades_gracefully(client, monkeypatch):
-    import io
     monkeypatch.setattr(app_module, "is_tesseract_available", lambda: False)
     page = client.get("/ocr").get_data(as_text=True)
     assert "OCR is unavailable" in page
@@ -193,3 +196,80 @@ def test_ocr_upload_without_tesseract_degrades_gracefully(client, monkeypatch):
                            content_type="multipart/form-data", follow_redirects=True)
     assert response.status_code == 200
     assert "Tesseract OCR engine" in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("form, message", [
+    ({"name": "Milk", "quantity": "abc"}, b"Quantity must be a valid number"),
+    ({"name": "Milk", "quantity": "20000"}, b"Quantity seems unreasonably high"),
+    ({"name": "M", "quantity": "1"}, b"Item name is too short"),
+    ({"name": "M" * 101, "quantity": "1"}, b"Item name is too long"),
+    ({"name": "Milk", "quantity": "1", "purchase_date": "05/01/2026"}, b"Invalid date format"),
+    ({"name": "Milk", "quantity": "1", "expiry_date": "soon"}, b"Invalid expiry date format"),
+    ({"name": "", "quantity": "1"}, b"are required"),
+])
+def test_add_validation_messages(client, db, form, message):
+    data = {"purchase_date": iso(0), **form}
+    assert message in client.post("/add", data=data).data
+    assert db.execute("SELECT COUNT(*) FROM groceries").fetchone()[0] == 0
+
+
+def test_edit_validation_and_missing_item(client, db):
+    add_item(db, "Bananas", qty=6, category="Produce")
+    item_id = db.execute("SELECT id FROM groceries").fetchone()[0]
+    assert client.get(f"/edit/{item_id}").status_code == 200
+    assert b"Quantity must be a positive number" in client.post(
+        f"/edit/{item_id}", data={"name": "Bananas", "quantity": "0", "purchase_date": iso(0)}).data
+    assert b"Expiry date cannot be before purchase date" in client.post(
+        f"/edit/{item_id}", data={"name": "Bananas", "quantity": "1", "purchase_date": iso(0), "expiry_date": iso(-2)}).data
+    assert b"Invalid expiry date format" in client.post(
+        f"/edit/{item_id}", data={"name": "Bananas", "quantity": "1", "purchase_date": iso(0), "expiry_date": "x"}).data
+    assert db.execute("SELECT quantity FROM groceries").fetchone()[0] == 6
+    assert b"Item not found" in client.get("/edit/9999", follow_redirects=True).data
+
+
+def test_missing_items_on_post_routes(client):
+    for path in ["/delete/9999", "/use/9999"]:
+        assert b"Item not found" in client.post(path, follow_redirects=True).data
+    assert client.get("/api/share/9999").status_code == 404
+
+
+def test_share_and_shopping_list(client, db):
+    add_item(db, "Whole Milk", qty=1, expiry=-2, category="Dairy")
+    add_item(db, "Whole Milk", qty=1, expiry=-20, category="Dairy")
+    item_id = db.execute("SELECT MIN(id) FROM groceries").fetchone()[0]
+    assert client.get(f"/api/share/{item_id}").get_json()["name"] == "Whole Milk"
+    html = client.get("/shopping-list").get_data(as_text=True)
+    assert "Whole Milk" in html
+
+
+def test_ocr_review_without_session_and_without_selection(client):
+    assert client.get("/ocr/review").status_code == 302
+    with client.session_transaction() as sess:
+        sess["ocr_items"] = [{"name": "Milk", "quantity": 1, "purchase_date": iso(0), "category": "Dairy", "confidence": 90}]
+    assert b"No items selected" in client.post("/ocr/review", data={}, follow_redirects=True).data
+    response = client.post("/ocr/review", data={"selected": ["0", "7"], "name_0": "M", "quantity_0": "1",
+                                                "purchase_date_0": iso(0)}, follow_redirects=True)
+    assert b"1 items had errors" in response.data
+
+
+def test_upload_requires_a_file(client):
+    assert b"No file uploaded" in client.post("/ocr", data={}, follow_redirects=True).data
+    response = client.post("/ocr", data={"receipt": (io.BytesIO(b""), "")},
+                           content_type="multipart/form-data", follow_redirects=True)
+    assert b"No file selected" in response.data
+
+
+@pytest.mark.parametrize("method, path", [
+    ("get", "/"), ("post", "/add"), ("get", "/edit/1"), ("post", "/delete/1"), ("post", "/use/1"),
+    ("get", "/shopping-list"), ("get", "/statistics"),
+    ("get", "/api/notifications/check"), ("get", "/api/export"), ("post", "/api/clear-expired"),
+    ("post", "/api/reset"), ("get", "/api/share/1"),
+])
+def test_database_errors_are_handled(client, monkeypatch, method, path):
+    def broken():
+        raise sqlite3.OperationalError("disk I/O error")
+    monkeypatch.setattr(app_module, "get_db_connection", broken)
+    data = {"name": "Milk", "quantity": "1", "purchase_date": iso(0)} if path == "/add" else None
+    response = getattr(client, method)(path, data=data, follow_redirects=True)
+    assert response.status_code in (200, 500)
+    assert b"disk I/O error" not in response.data      # internals are logged, not shown

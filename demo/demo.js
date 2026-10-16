@@ -132,6 +132,7 @@
             expiry_date: get('expiry_date'),
             category: SEED.categories.includes(category) ? category : 'Other',
             notes: get('notes'),
+            keep_separate: !!(form.elements.keep_separate && form.elements.keep_separate.checked),
         };
     }
     function showFormError(form, message) {
@@ -143,6 +144,54 @@
         }
         alert.textContent = message;
         alert.scrollIntoView({ block: 'center' });
+    }
+    // Mirrors inventory.py: an item already in stock (same normalized name and
+    // category, expiry dates both missing or within the merge window) is
+    // merged into the existing row instead of creating a duplicate.
+    function normalizeName(name) {
+        const words = String(name || '').toLowerCase().replace(/[^\p{L}\p{N}_\s]/gu, ' ').split(/\s+/).filter(Boolean);
+        const last = words.length ? words[words.length - 1] : '';
+        if (last.length > 3 && last.endsWith('s') && !last.endsWith('ss')) words[words.length - 1] = last.slice(0, -1);
+        return words.join(' ');
+    }
+    function daysApart(a, b) {
+        const ta = parseIso(a), tb = parseIso(b);
+        return ta === null || tb === null ? null : Math.abs(Math.round((ta - tb) / 86400000));
+    }
+    function expiryClose(a, b) {
+        if (!a && !b) return true;
+        if (!a || !b) return false;
+        const gap = daysApart(a, b);
+        return gap !== null && gap <= (SEED.mergeWindowDays ?? 3);
+    }
+    function findMergeCandidate(data) {
+        const key = normalizeName(data.name);
+        const expiry = data.expiry_date || null;
+        let best = null, bestGap = null;
+        state.items.forEach(it => {
+            if (categoryOf(it) !== data.category || normalizeName(it.name) !== key || !expiryClose(it.expiry_date, expiry)) return;
+            const gap = expiry ? daysApart(it.expiry_date, expiry) : 0;
+            if (best === null || gap < bestGap) { best = it; bestGap = gap; }
+        });
+        return best;
+    }
+    // Returns { item, merged }
+    function addOrMerge(data) {
+        const existing = data.keep_separate ? null : findMergeCandidate(data);
+        if (!existing) return { item: addItem(data), merged: false };
+        existing.quantity = Math.min(existing.quantity + parseInt(data.quantity, 10), 10000);
+        const expiries = [existing.expiry_date, data.expiry_date].filter(Boolean).sort();
+        existing.expiry_date = expiries.length ? expiries[0] : null;
+        if (data.purchase_date > existing.purchase_date) existing.purchase_date = data.purchase_date;
+        const notes = data.notes || '';
+        const old = existing.notes || '';
+        if (notes && !old.toLowerCase().includes(notes.toLowerCase())) existing.notes = old ? `${old}; ${notes}` : notes;
+        return { item: existing, merged: true };
+    }
+    function addedMessage(result) {
+        return result.merged
+            ? `${result.item.name} was already in stock, so the quantities were combined. You now have ${result.item.quantity}.`
+            : 'Item added successfully!';
     }
     function addItem(data) {
         const item = {
@@ -175,16 +224,29 @@
         }
     }
 
+    // Mirrors barcode_catalog.py and the /api/barcode route: GS1 check digit,
+    // then a lookup in the small offline catalog shipped with the app.
+    function gs1CheckDigit(body) {
+        let total = 0;
+        body.split('').reverse().forEach((d, i) => { total += Number(d) * (i % 2 === 0 ? 3 : 1); });
+        return (10 - (total % 10)) % 10;
+    }
+    function barcodeLookup(code) {
+        const valid = /^\d+$/.test(code) && [8, 12, 13, 14].includes(code.length) && gs1CheckDigit(code.slice(0, -1)) === Number(code.slice(-1));
+        if (!valid) return [{ barcode: code, found: false, error: 'Enter an 8, 12, 13, or 14 digit barcode with a valid check digit.' }, 400];
+        const key = code.replace(/^0+/, '');
+        const product = (SEED.barcodes || []).find(p => p.barcode.replace(/^0+/, '') === key);
+        if (!product) return [{ barcode: code, found: false, message: 'Not in the local catalog. Enter the product details manually.' }, 404];
+        return [{ barcode: code, found: true, name: product.name, category: product.category, source: 'local catalog' }, 200];
+    }
+
     // Answer the app's JSON endpoints locally so page scripts never hit a server.
     const realFetch = window.fetch ? window.fetch.bind(window) : null;
     window.fetch = function (input, init) {
         const url = typeof input === 'string' ? input : (input && input.url) || '';
-        const json = body => Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } }));
+        const json = (body, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
         let m = /\/api\/barcode\/([^/?#]+)/.exec(url);
-        if (m) {
-            const code = decodeURIComponent(m[1]);
-            return json({ barcode: code, name: `Product ${code}`, category: 'Other', message: 'Barcode lookup feature - integrate with product database API' });
-        }
+        if (m) return json(...barcodeLookup(decodeURIComponent(m[1]).trim()));
         m = /\/api\/share\/(\d+)/.exec(url);
         if (m) {
             const it = findItem(+m[1]);
@@ -403,9 +465,9 @@
     function initAdd() {
         const form = document.querySelector('form.grocery-form');
         bindItemForm(form, data => {
-            addItem(data);
+            const result = addOrMerge(data);
             save(state);
-            redirect('index.html', 'success', 'Item added successfully!');
+            redirect('index.html', 'success', addedMessage(result));
         });
     }
 
@@ -484,6 +546,7 @@
             const selected = Array.from(form.querySelectorAll('input[name="selected"]:checked')).map(cb => cb.value);
             if (!selected.length) { showFlash('warning', 'No items selected'); return; }
             let added = 0;
+            let merged = 0;
             const errors = [];
             selected.forEach(idx => {
                 const get = n => (form.elements[`${n}_${idx}`] ? String(form.elements[`${n}_${idx}`].value).trim() : '');
@@ -494,11 +557,12 @@
                 if (!SEED.categories.includes(data.category)) data.category = 'Other';
                 const error = validate(data.name, data.quantity, data.purchase_date, '');
                 if (error) { errors.push(`${data.name}: ${error}`); return; }
-                addItem(data);
+                if (addOrMerge(data).merged) merged += 1;
                 added += 1;
             });
             save(state);
-            if (added) queueFlash('success', `Successfully added ${added} items!`);
+            const mergedNote = merged ? ` (${merged} combined with items already in stock)` : '';
+            if (added) queueFlash('success', `Successfully added ${added} items${mergedNote}!`);
             if (errors.length) queueFlash('warning', `${errors.length} items had errors and were not added`);
             redirect('index.html');
         });
@@ -709,9 +773,9 @@
         const form = document.querySelector('#add-form form');
         if (form) {
             bindItemForm(form, data => {
-                addItem(data);
+                const result = addOrMerge(data);
                 save(state);
-                redirect('index.html', 'success', 'Item added successfully!');
+                redirect('index.html', 'success', addedMessage(result));
             });
         }
     }

@@ -6,9 +6,14 @@ import sqlite3
 import os
 import logging
 from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from datetime import datetime
+from PIL import Image, UnidentifiedImageError
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 import pytesseract
+import barcode_catalog
+from inventory import add_or_merge
 from ocr_processor import process_receipt_image, is_tesseract_available
 from config import config
 
@@ -21,6 +26,9 @@ env = os.environ.get('FLASK_ENV', 'development')
 # production SECRET_KEY check) are evaluated instead of copied as raw
 # property objects by from_object().
 app.config.from_object(config.get(env, config['default'])())
+
+# Every POST form carries a CSRF token; fetch() calls send it as X-CSRFToken.
+csrf = CSRFProtect(app)
 
 # Setup logging
 logging.basicConfig(
@@ -52,6 +60,41 @@ def allowed_file(filename):
     """
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+
+def is_image_upload(file_storage):
+    """
+    Check that an uploaded file really is an image Pillow can decode, not just
+    a file with an image extension. The stream is rewound afterwards.
+    """
+    try:
+        with Image.open(file_storage.stream) as img:
+            img.verify()
+        return True
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
+        return False
+    finally:
+        file_storage.stream.seek(0)
+
+
+def wants_json():
+    return request.path.startswith('/api/')
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(error):
+    logger.warning(f"CSRF check failed on {request.path}: {error.description}")
+    if wants_json():
+        return {'error': 'Missing or invalid CSRF token. Reload the page and try again.'}, 400
+    flash('Your session expired or the form was out of date. Please try again.', 'error')
+    return redirect(request.referrer or url_for('index'))
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(error):
+    limit_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+    flash(f'That file is too large. The limit is {limit_mb} MB.', 'error')
+    return redirect(url_for('ocr_upload'))
 
 # Database connection helper
 def get_db_connection():
@@ -308,17 +351,23 @@ def add():
             if category not in CATEGORIES:
                 category = 'Other'
 
-            # Insert into database
+            # Insert, or merge into a matching item already in stock
             conn = get_db_connection()
-            conn.execute(
-                'INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category, notes) VALUES (?, ?, ?, ?, ?, ?)',
-                (name, validated_qty, purchase_date, expiry_date if expiry_date else None, category, notes)
+            result = add_or_merge(
+                conn, name, validated_qty, purchase_date, expiry_date, category, notes,
+                window_days=app.config['MERGE_EXPIRY_WINDOW_DAYS'],
+                merge=not request.form.get('keep_separate'),
             )
             conn.commit()
             conn.close()
 
-            logger.info(f"Item added: {name} (qty: {validated_qty}, category: {category})")
-            flash('Item added successfully!', 'success')
+            if result.merged:
+                logger.info(f"Item merged into {result.item_id}: {name} (+{validated_qty})")
+                flash(f'{result.name} was already in stock, so the quantities were combined. '
+                      f'You now have {result.quantity}.', 'success')
+            else:
+                logger.info(f"Item added: {name} (qty: {validated_qty}, category: {category})")
+                flash('Item added successfully!', 'success')
             return redirect(url_for('index'))
 
         except sqlite3.Error as e:
@@ -513,6 +562,10 @@ def ocr_upload():
                       'installed on this server. You can still add items manually.', 'error')
                 return redirect(request.url)
 
+            if file and allowed_file(file.filename) and not is_image_upload(file):
+                flash('That file is not a readable image. Please upload a PNG, JPEG, or other photo.', 'error')
+                return redirect(request.url)
+
             if file and allowed_file(file.filename):
                 # Save file with secure filename
                 filename = secure_filename(file.filename)
@@ -544,7 +597,7 @@ def ocr_upload():
 
                 except Exception as e:
                     logger.error(f"Error processing receipt: {e}")
-                    flash(f'Error processing receipt: {str(e)}', 'error')
+                    flash('Could not read that receipt. Please try a clearer photo or add items manually.', 'error')
                     return redirect(request.url)
 
                 finally:
@@ -558,6 +611,9 @@ def ocr_upload():
             else:
                 flash('Invalid file type. Please upload an image file.', 'error')
                 return redirect(request.url)
+
+        except RequestEntityTooLarge:
+            raise  # handled by handle_too_large()
 
         except Exception as e:
             logger.error(f"Unexpected error in OCR upload: {e}")
@@ -590,6 +646,7 @@ def ocr_review():
 
             conn = get_db_connection()
             added_count = 0
+            merged_count = 0
             errors = []
 
             for idx in selected_indices:
@@ -615,12 +672,13 @@ def ocr_review():
                     if category not in CATEGORIES:
                         category = 'Other'
 
-                    # Insert into database
-                    conn.execute(
-                        'INSERT INTO groceries (name, quantity, purchase_date, expiry_date, category) VALUES (?, ?, ?, ?, ?)',
-                        (name, validated_qty, purchase_date, expiry_date if expiry_date else None, category)
+                    # Insert, or merge into a matching item already in stock
+                    result = add_or_merge(
+                        conn, name, validated_qty, purchase_date, expiry_date, category,
+                        window_days=app.config['MERGE_EXPIRY_WINDOW_DAYS'],
                     )
                     added_count += 1
+                    merged_count += int(result.merged)
 
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Error processing OCR item {idx}: {e}")
@@ -636,7 +694,8 @@ def ocr_review():
             # Provide feedback
             if added_count > 0:
                 logger.info(f"OCR review completed: {added_count} items added")
-                flash(f'Successfully added {added_count} items!', 'success')
+                merged_note = f' ({merged_count} combined with items already in stock)' if merged_count else ''
+                flash(f'Successfully added {added_count} items{merged_note}!', 'success')
 
             if errors:
                 logger.warning(f"OCR review had {len(errors)} errors")
@@ -692,7 +751,7 @@ def check_notifications():
         }
     except Exception as e:
         logger.error(f"Error checking notifications: {e}")
-        return {'error': str(e)}, 500
+        return {'error': 'Internal server error'}, 500
 
 
 @app.route('/shopping-list')
@@ -852,7 +911,8 @@ def barcode():
     """
     Barcode scanner page for quick product addition.
     """
-    return render_template('barcode.html', categories=CATEGORIES)
+    return render_template('barcode.html', categories=CATEGORIES,
+                           sample_codes=barcode_catalog.sample_codes())
 
 
 @app.route('/api/export')
@@ -892,7 +952,7 @@ def export_data():
 
     except Exception as e:
         logger.error(f"Error exporting data: {e}")
-        return {'error': str(e)}, 500
+        return {'error': 'Internal server error'}, 500
 
 
 @app.route('/api/clear-expired', methods=['POST'])
@@ -912,7 +972,7 @@ def clear_expired():
 
     except Exception as e:
         logger.error(f"Error clearing expired items: {e}")
-        return {'error': str(e)}, 500
+        return {'error': 'Internal server error'}, 500
 
 
 @app.route('/api/reset', methods=['POST'])
@@ -931,7 +991,7 @@ def reset_data():
 
     except Exception as e:
         logger.error(f"Error resetting data: {e}")
-        return {'error': str(e)}, 500
+        return {'error': 'Internal server error'}, 500
 
 
 @app.route('/api/share/<int:item_id>')
@@ -959,25 +1019,38 @@ def share_item(item_id):
 
     except Exception as e:
         logger.error(f"Error sharing item: {e}")
-        return {'error': str(e)}, 500
+        return {'error': 'Internal server error'}, 500
 
 
 @app.route('/api/barcode/<barcode_number>')
 def barcode_lookup(barcode_number):
     """
-    API endpoint for barcode lookup.
-    In production, this would integrate with a product database API.
+    Look up a barcode in the small offline catalog bundled with the app
+    (see barcode_catalog.py). There is no online product database, so unknown
+    codes return 404 and the user enters the details by hand.
     """
-    # This is a placeholder - in production you'd integrate with:
-    # - Open Food Facts API
-    # - UPC Database
-    # - Barcode Lookup API
+    code = barcode_number.strip()
+    if not barcode_catalog.is_valid_gtin(code):
+        return {
+            'barcode': code,
+            'found': False,
+            'error': 'Enter an 8, 12, 13, or 14 digit barcode with a valid check digit.',
+        }, 400
+
+    product = barcode_catalog.lookup(code)
+    if product is None:
+        return {
+            'barcode': code,
+            'found': False,
+            'message': 'Not in the local catalog. Enter the product details manually.',
+        }, 404
 
     return {
-        'barcode': barcode_number,
-        'name': f'Product {barcode_number}',
-        'category': 'Other',
-        'message': 'Barcode lookup feature - integrate with product database API'
+        'barcode': code,
+        'found': True,
+        'name': product['name'],
+        'category': product['category'],
+        'source': barcode_catalog.SOURCE,
     }
 
 

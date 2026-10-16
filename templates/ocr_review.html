@@ -9,6 +9,7 @@
         <p class="text-muted mb-4">Check the items read from your receipt. Fix names, set expiry dates, and untick anything you do not want to save.</p>
         
         <form method="POST" action="/ocr/review">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="table-responsive panel p-0">
                 <table class="table align-middle">
                     <thead>

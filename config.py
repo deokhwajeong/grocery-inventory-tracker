@@ -19,7 +19,7 @@ class Config:
 
     # Upload settings
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(BASE_DIR, 'uploads'))
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
+    MAX_CONTENT_LENGTH = int(os.environ.get('MAX_UPLOAD_MB', '16')) * 1024 * 1024  # receipt photo size limit
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'}
 
     # Database settings
@@ -38,6 +38,14 @@ class Config:
 
     # Expiry settings
     EXPIRY_WARNING_DAYS = int(os.environ.get('EXPIRY_WARNING_DAYS', '7'))
+
+    # Adding an item that is already in stock (same name and category) merges
+    # it into the existing row when the expiry dates are at most this far apart.
+    MERGE_EXPIRY_WINDOW_DAYS = int(os.environ.get('MERGE_EXPIRY_WINDOW_DAYS', '3'))
+
+    # CSRF tokens stay valid for the whole session instead of expiring after an
+    # hour, so a form left open in a tab still submits.
+    WTF_CSRF_TIME_LIMIT = None
 
     # Logging
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
